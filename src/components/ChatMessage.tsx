@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, BotIcon, UserCircle, FileText, Download, Copy } from 'lucide-react';
+import { Bot, BotIcon, UserCircle, FileText, Download, Copy, Stethoscope, Smile } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Message } from '../types';
 import { formatTime } from '../utils/date';
@@ -8,9 +8,10 @@ import jsPDF from 'jspdf';
 interface ChatMessageProps {
   message: Message;
   onPreviewClick?: (fileUrl: string, fileType: string, fileName: string) => void;
+  onEdit?: (id: string) => void;
 }
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick, onEdit }) => {
   const isUser = message.role === 'user';
   // File preview logic
   const isImage = message.fileUrl && message.fileType && message.fileType.startsWith('image/');
@@ -93,7 +94,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick }) =>
     >
       {!isUser && (
         <div className="flex-shrink-0 bg-primary-100 rounded-full p-2 shadow-md border-2 border-primary-200">
-          <Bot size={24} className="text-primary-600" />
+          <Stethoscope size={24} className="text-primary-600" />
         </div>
       )}
       <div
@@ -188,10 +189,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick }) =>
             </div>
           </>
         )}
+        {isUser && onEdit && (
+          <button
+            className="absolute top-2 right-2 p-1 rounded hover:bg-primary-200 text-xs text-primary-700"
+            title="Edit message"
+            onClick={() => onEdit(message.id)}
+          >
+            Edit
+          </button>
+        )}
       </div>
       {isUser && (
-        <div className="flex-shrink-0 bg-primary-500 rounded-full p-2 shadow-md border-2 border-primary-300">
-          <UserCircle size={24} className="text-white" />
+        <div className="flex-shrink-0 bg-primary-500 rounded-full p-2 shadow-md border-2 border-primary-600">
+          <Smile size={24} className="text-white" />
         </div>
       )}
     </div>

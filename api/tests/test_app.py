@@ -1,5 +1,5 @@
 import pytest
-from app import app
+from api.app import app
 import os
 import json
 

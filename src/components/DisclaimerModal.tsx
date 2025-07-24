@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 
 interface DisclaimerModalProps {
   onClose: () => void;
@@ -13,6 +14,13 @@ const DisclaimerModal: React.FC<DisclaimerModalProps> = ({ onClose }) => {
             <h2 className="text-2xl font-semibold text-gray-800">
               Healthcare Chatbot Disclaimer
             </h2>
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+              aria-label="Close disclaimer modal"
+            >
+              <X size={20} />
+            </button>
           </div>
           
           <div className="grid grid-cols-2 gap-6 text-gray-700">

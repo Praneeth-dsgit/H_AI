@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 
 interface PrivacyModalProps {
   onClose: () => void;
@@ -7,12 +8,19 @@ interface PrivacyModalProps {
 const PrivacyModal: React.FC<PrivacyModalProps> = ({ onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-xl max-w-6xl w-[90%] mx-auto h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl max-w-6xl w-[90%] mx-auto h-[80vh] overflow-y-auto relative">
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between border-b border-gray-200 pb-3">
             <h2 className="text-2xl font-semibold text-gray-800">
               Privacy Policy
             </h2>
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+              aria-label="Close privacy modal"
+            >
+              <X size={20} />
+            </button>
           </div>
           
           <div className="space-y-4 text-gray-700">

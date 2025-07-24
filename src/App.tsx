@@ -1,8 +1,9 @@
 import { type FC, useState, useEffect, useRef } from 'react';
-import { ArrowUp, Bot, FileDown, UserCircle, Trash2, AlertCircle, Upload, FileText, Image as ImageIcon, Loader2, X } from 'lucide-react';
+import { ArrowUp, Bot, FileDown, UserCircle, Trash2, AlertCircle, Upload, FileText, Image as ImageIcon, Loader2, X, Settings, HeartPulseIcon,} from 'lucide-react';
 import ChatMessage from './components/ChatMessage';
 import LoadingDots from './components/LoadingDots';
 import DisclaimerModal from './components/DisclaimerModal';
+import CapabilitySelector, { type Capability } from './components/CapabilitySelector';
 import PatientInfoForm from './components/PatientInfoForm';
 import { Message, PatientInfo } from './types';
 import {
@@ -13,15 +14,20 @@ import {
   getSessions,
   setCurrentSessionId,
   getCurrentSessionId,
-  removeSession
+  removeSession,
+  clearUserData
 } from './utils/storage';
 import { exportChatHistory } from './utils/export';
 import Header from './components/Header';
-import QuickPrompts from './components/QuickPrompts';
+import AuthHeader from './components/AuthHeader';
 import { v4 as uuidv4 } from 'uuid';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 GlobalWorkerOptions.workerSrc = workerUrl;
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import Signup from './components/Signup';
+import OtpVerification from './components/OtpVerification';
+import Login from './components/Login';
 
 function shouldResetContext(input: string): boolean {
   const trimmed = input.trim().toLowerCase();
@@ -34,11 +40,28 @@ function shouldResetContext(input: string): boolean {
   );
 }
 
+const AuthLayout: FC<{ children: React.ReactNode; navigate: any }> = ({ children, navigate }) => (
+  <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <AuthHeader onNavigateToHome={() => navigate('/')} />
+    <div className="flex items-center justify-center py-12 px-4">
+      <div className="w-full max-w-md p-8 bg-white rounded-xl shadow-lg border border-gray-100 animate-fade-in">
+        <div className="mb-6 text-center">
+          <h1 className="text-2xl font-bold text-gray-800">Welcome to MedChat</h1>
+          <p className="text-gray-500 text-sm">Your secure healthcare assistant</p>
+        </div>
+        {children}
+      </div>
+    </div>
+  </div>
+);
+
 const App: FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showDisclaimer, setShowDisclaimer] = useState(true);
+  const [showDisclaimer, setShowDisclaimer] = useState(true); // Initial state, will be managed by session loading logic
+  const [showCapabilitySelector, setShowCapabilitySelector] = useState(false);
+  const [selectedCapability, setSelectedCapability] = useState<Capability | null>(null);
   const [patientInfo, setPatientInfo] = useState<PatientInfo>({
     age: 0,
     weight: 0,
@@ -76,6 +99,91 @@ const App: FC = () => {
   } | null>(null);
   const [lastFileFindings, setLastFileFindings] = useState<string | null>(null);
   const [lastAiMessage, setLastAiMessage] = useState<string | null>(null);
+  // Add state for editing
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  const [signupEmail, setSignupEmail] = useState('');
+  const [otpVerified, setOtpVerified] = useState(false);
+  const navigate = useNavigate();
+  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+
+  // ProtectedRoute component
+  const ProtectedRoute: FC<{ children: React.ReactNode }> = ({ children }) => {
+    const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+    return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  };
+
+  // Handle disclaimer close
+  const handleDisclaimerClose = () => {
+    setShowDisclaimer(false);
+    setShowCapabilitySelector(true);
+  };
+
+  // Handle capability selection
+  const handleCapabilitySelect = (capability: Capability) => {
+    setSelectedCapability(capability);
+    setShowCapabilitySelector(false);
+    
+    // Save capability for current session (user-specific)
+    if (currentSessionId) {
+      const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+      const storageKey = `${userEmail}_sessionCapabilities`;
+      const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      sessionCapabilities[currentSessionId] = capability;
+      localStorage.setItem(storageKey, JSON.stringify(sessionCapabilities));
+    }
+  };
+
+  // Load saved capability on mount and for current session
+  useEffect(() => {
+    if (currentSessionId && isAuthenticated) {
+      const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+      const storageKey = `${userEmail}_sessionCapabilities`;
+      const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      const sessionCapability = sessionCapabilities[currentSessionId] as Capability;
+      
+      if (sessionCapability && ['general', 'radiology', 'lab'].includes(sessionCapability)) {
+        setSelectedCapability(sessionCapability);
+        setShowDisclaimer(false);
+        setShowCapabilitySelector(false);
+      } else {
+        // For new sessions or new users, wait for disclaimer to be closed first
+        // Don't show capability selector yet if disclaimer is still showing
+        setSelectedCapability(null);
+        if (!showDisclaimer) {
+          setShowCapabilitySelector(true);
+        }
+      }
+    }
+  }, [currentSessionId, isAuthenticated, showDisclaimer]);
+
+  // Get capability display info
+  const getCapabilityInfo = (capability: Capability | null) => {
+    switch (capability) {
+      case 'general':
+        return { name: 'General Medical Assistant', color: 'text-blue-600', bgColor: 'bg-blue-50' };
+      case 'radiology':
+        return { name: 'Radiology Assistant', color: 'text-purple-600', bgColor: 'bg-purple-50' };
+      case 'lab':
+        return { name: 'Lab Interpretation Assistant', color: 'text-green-600', bgColor: 'bg-green-50' };
+      default:
+        return { name: 'AI Assistant', color: 'text-gray-600', bgColor: 'bg-gray-50' };
+    }
+  };
+
+  // Get capability-specific placeholder text
+  const getPlaceholderText = (capability: Capability | null) => {
+    switch (capability) {
+      case 'general':
+        return "Ask about symptoms, treatments, medications, or general health concerns...";
+      case 'radiology':
+        return "Ask about X-rays, CT scans, MRI, ultrasound, or medical imaging interpretation...";
+      case 'lab':
+        return "Ask about blood tests, lab results, CBC, chemistry panels, or laboratory values...";
+      default:
+        return "Please select an assistant capability first...";
+    }
+  };
 
   // Timer for analyzing
   useEffect(() => {
@@ -96,7 +204,6 @@ const App: FC = () => {
   const handleFileTypeSelect = (type: 'pdf' | 'image') => {
     setPendingFileType(type);
   };
-
   // Close dropdown when clicking outside
   useEffect(() => {
     if (!showDropdown) return;
@@ -109,28 +216,48 @@ const App: FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showDropdown]);
 
-  // Load sessions and current session on mount
+  // Load sessions and current session on mount or when user changes
   useEffect(() => {
+    // Only load sessions if user is authenticated
+    if (!isAuthenticated) return;
+    
     const loadedSessions = getSessions();
-    let sessionId = getCurrentSessionId();
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const storageKey = `${userEmail}_sessionCapabilities`;
+    const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    
+    // Always create a new session on page refresh/reload
+    const newId = uuidv4();
+    const sessionNumber = loadedSessions.length + 1;
+    const newSession = { id: newId, name: `Session ${sessionNumber}`, messages: [] };
+    
+    // Add the new session to existing sessions
+    const updatedSessions = [...loadedSessions, newSession];
+    setSessions(updatedSessions);
+    saveSessions(updatedSessions);
+    setCurrentSessionId(newId);
+    setCurrentSessionIdState(newId);
+    setMessages([]);
+    
+    // Handle modal display logic
     if (!loadedSessions.length) {
-      // Create initial session
-      const newId = uuidv4();
-      const initialSession = { id: newId, name: 'Session 1', messages: [] };
-      saveSessions([initialSession]);
-      setSessions([initialSession]);
-      setCurrentSessionId(newId);
-      setCurrentSessionIdState(newId);
-      setMessages([]);
+      // For completely new users, show disclaimer first
+      setShowDisclaimer(true);
+      setShowCapabilitySelector(false);
     } else {
-      setSessions(loadedSessions);
-      if (!sessionId) sessionId = loadedSessions[0].id;
-      setCurrentSessionIdState(sessionId);
-      setCurrentSessionId(sessionId || loadedSessions[0].id);
-      const found = loadedSessions.find(s => s.id === sessionId);
-      setMessages(found ? found.messages : []);
+      // For returning users, check if they have any saved capabilities
+      const hasAnyCapabilities = Object.keys(sessionCapabilities).length > 0;
+      if (hasAnyCapabilities) {
+        // Returning user with saved capabilities - skip disclaimer
+        setShowDisclaimer(false);
+        setShowCapabilitySelector(true); // Show capability selector for new session
+      } else {
+        // Returning user but no capabilities saved - show disclaimer
+        setShowDisclaimer(true);
+        setShowCapabilitySelector(false);
+      }
     }
-  }, []);
+  }, [isAuthenticated]); // Re-run when authentication status changes
 
   // Save messages to the current session
   useEffect(() => {
@@ -149,6 +276,22 @@ const App: FC = () => {
     setCurrentSessionId(sessionId);
     const found = sessions.find(s => s.id === sessionId);
     setMessages(found ? found.messages : []);
+    
+    // Load capability for this session (user-specific)
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const storageKey = `${userEmail}_sessionCapabilities`;
+    const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const sessionCapability = sessionCapabilities[sessionId] as Capability;
+    
+    if (sessionCapability) {
+      setSelectedCapability(sessionCapability);
+      setShowCapabilitySelector(false);
+    } else {
+      // If no capability set for this session, show selector (no disclaimer for session switches)
+      setSelectedCapability(null);
+      setShowDisclaimer(false);
+      setShowCapabilitySelector(true);
+    }
   };
 
   // Create new session
@@ -165,6 +308,10 @@ const App: FC = () => {
     setCurrentSessionIdState(newId);
     setCurrentSessionId(newId);
     setMessages([]);
+    // Show capability selector for new session (no disclaimer needed for existing users)
+    setShowDisclaimer(false);
+    setShowCapabilitySelector(true);
+    setSelectedCapability(null);
   };
 
   // Handle session delete
@@ -174,12 +321,31 @@ const App: FC = () => {
     setSessions(updatedSessions);
     saveSessions(updatedSessions);
     removeSession(sessionId);
+    
+    // Clean up capability data for deleted session (user-specific)
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const storageKey = `${userEmail}_sessionCapabilities`;
+    const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    delete sessionCapabilities[sessionId];
+    localStorage.setItem(storageKey, JSON.stringify(sessionCapabilities));
+    
     // If the deleted session was current, switch to another
     if (currentSessionId === sessionId) {
       const nextSession = updatedSessions[0];
       setCurrentSessionIdState(nextSession.id);
       setCurrentSessionId(nextSession.id);
       setMessages(nextSession.messages);
+      
+      // Load capability for the next session
+      const nextSessionCapability = sessionCapabilities[nextSession.id] as Capability;
+      if (nextSessionCapability) {
+        setSelectedCapability(nextSessionCapability);
+        setShowCapabilitySelector(false);
+      } else {
+        setSelectedCapability(null);
+        setShowDisclaimer(false);
+        setShowCapabilitySelector(true);
+      }
     }
   };
 
@@ -220,6 +386,7 @@ const App: FC = () => {
           fileFindings: resetContext ? null : lastFileFindings,
           previousAiMessage: isFollowUp ? lastAiMessage : null,
           resetMessage,
+          capability: selectedCapability || 'general',
         }),
       });
 
@@ -290,6 +457,99 @@ const App: FC = () => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
+    if (editingMessageId) {
+      // Find the index of the user message
+      const userMsgIdx = messages.findIndex(msg => msg.id === editingMessageId);
+      if (userMsgIdx !== -1) {
+        // Remove the old assistant response if it immediately follows the user message
+        let newMessages = [...messages];
+        newMessages[userMsgIdx] = { ...newMessages[userMsgIdx], content: input.trim(), timestamp: new Date().toISOString() };
+        if (
+          newMessages[userMsgIdx + 1] &&
+          newMessages[userMsgIdx + 1].role === 'assistant'
+        ) {
+          newMessages.splice(userMsgIdx + 1, 1);
+        }
+        setMessages(newMessages);
+        setEditingMessageId(null);
+        setInput('');
+        // Re-send the edited message to the backend for a new AI response
+        const editedUserMessage = newMessages[userMsgIdx];
+        const tempMessageId = (Date.now() + 1).toString();
+        const tempMessage: Message = {
+          id: tempMessageId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, tempMessage]);
+        try {
+          const resetContext = shouldResetContext(editedUserMessage.content);
+          const isFollowUp = !resetContext;
+          const resetMessage = resetContext ? editedUserMessage.content.trim().toLowerCase() : null;
+          const response = await fetch('http://localhost:5000/api/chat/stream', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: editedUserMessage.content,
+              patientInfo: editedUserMessage.patientInfo,
+              fileContext: resetContext ? null : lastUploadedFile,
+              fileFindings: resetContext ? null : lastFileFindings,
+              previousAiMessage: isFollowUp ? lastAiMessage : null,
+              resetMessage,
+              capability: selectedCapability || 'general',
+            }),
+          });
+          if (!response.ok) throw new Error('Failed to get response from server');
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('No reader available');
+          let assistantContent = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = new TextDecoder().decode(value);
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const content = line.slice(6);
+                if (content.startsWith('[ERROR]')) {
+                  throw new Error(content.slice(8));
+                }
+                const processedContent = content.replace(/\\n/g, '\n');
+                assistantContent += processedContent;
+                setMessages(prev => prev.map(msg =>
+                  msg.id === tempMessageId
+                    ? {
+                        ...msg,
+                        content: (msg.content || '') + processedContent
+                      }
+                    : msg
+                ));
+              }
+            }
+          }
+          setLastAiMessage(assistantContent);
+        } catch (error) {
+          const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: "I'm sorry, I encountered an error processing your request. Please try again later.",
+            timestamp: new Date().toISOString(),
+            isError: true,
+          };
+          setMessages(prev => prev.map(msg =>
+            msg.id === tempMessageId ? errorMessage : msg
+          ));
+          setLastAiMessage(null);
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -327,6 +587,7 @@ const App: FC = () => {
           fileFindings: resetContext ? null : lastFileFindings,
           previousAiMessage: isFollowUp ? lastAiMessage : null,
           resetMessage,
+          capability: selectedCapability || 'general',
         }),
       });
 
@@ -457,6 +718,7 @@ const App: FC = () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('sessionId', currentSessionId || '');
+      formData.append('capability', selectedCapability || 'general');
       try {
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -561,7 +823,9 @@ const App: FC = () => {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragActive(true);
+    if (selectedCapability) {
+      setIsDragActive(true);
+    }
   };
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
@@ -572,23 +836,36 @@ const App: FC = () => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragActive(false);
+    
+    if (!selectedCapability) {
+      return; // Don't allow drop if no capability selected
+    }
+    
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      // For now, just handle the first file (multi-file will be next)
       const file = files[0];
-      // Determine type for modal logic
-      if (file.type === 'application/pdf') {
+      
+      // Capability-specific file type validation
+      if (selectedCapability === 'general' && file.type === 'application/pdf') {
         setPendingFileType('pdf');
-      } else if (file.type.startsWith('image/')) {
+      } else if (selectedCapability === 'lab' && file.type === 'application/pdf') {
+        setPendingFileType('pdf');
+      } else if (selectedCapability === 'radiology' && file.type.startsWith('image/')) {
         setPendingFileType('image');
       } else {
-        // Show error or ignore unsupported file
+        // Show error for wrong file type for capability
+        alert(`Please upload ${
+          selectedCapability === 'general' ? 'PDF documents (prescriptions)' :
+          selectedCapability === 'lab' ? 'PDF lab reports' :
+          selectedCapability === 'radiology' ? 'medical images (JPG/PNG)' :
+          'appropriate files'
+        } for ${selectedCapability} mode.`);
         return;
       }
+      
       setShowFileTypeModal(false); // Hide modal if open
       // Simulate file input selection
       setTimeout(() => {
-        // Create a synthetic event for file upload handler
         const dt = new DataTransfer();
         dt.items.add(file);
         const input = document.createElement('input');
@@ -612,245 +889,375 @@ const App: FC = () => {
     return 'New Session';
   }
 
+  // Get session capability
+  function getSessionCapability(sessionId: string): string {
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const storageKey = `${userEmail}_sessionCapabilities`;
+    const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const capability = sessionCapabilities[sessionId];
+    switch (capability) {
+      case 'general': return '🩺 General';
+      case 'radiology': return '🧠 Radiology';
+      case 'lab': return '📊 Lab';
+      default: return '❓ Not Set';
+    }
+  }
+
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
-      <Header
-        sessions={sessions}
-        currentSessionId={currentSessionId}
-        showDropdown={showDropdown}
-        setShowDropdown={setShowDropdown}
-        dropdownRef={dropdownRef}
-        getSessionTopic={getSessionTopic}
-        handleSessionSwitch={handleSessionSwitch}
-        handleDeleteSession={handleDeleteSession}
-        handleNewSession={handleNewSession}
-      />
-
-      {showDisclaimer && (
-        <DisclaimerModal onClose={() => setShowDisclaimer(false)} />
-      )}
-
-      <main className="flex-1 flex px-4 py-4 overflow-hidden max-w-7xl w-full mx-auto">
-        <div className="flex gap-2 flex-1 min-h-0">
-          {/* Left Column - Patient Info */}
-          <div className="w-65 flex-shrink-0 overflow-y-auto hide-scrollbar">
-            <div className="h-full flex flex-col">
-              <h2 className="text-lg font-medium text-blue-900 mb-2">Patient Information</h2>
-              <div className="flex-1">
-                <PatientInfoForm
-                  patientInfo={patientInfo}
-                  onPatientInfoChange={setPatientInfo}
-                  onSubmitPatientInfo={handlePatientSubmit}
-                  isLoading={isLoading}
-                />
+    <Routes>
+      <Route path="/signup" element={
+        <AuthLayout navigate={navigate}>
+          <Signup 
+            onSignupSuccess={email => { setSignupEmail(email); navigate('/verify-otp'); }}
+            onNavigateToLogin={() => navigate('/login')}
+          />
+        </AuthLayout>
+      } />
+      <Route path="/verify-otp" element={
+        <AuthLayout navigate={navigate}>
+          <OtpVerification email={signupEmail} onVerified={() => { setOtpVerified(true); navigate('/login'); }} />
+        </AuthLayout>
+      } />
+      <Route path="/login" element={
+        <AuthLayout navigate={navigate}>
+          <Login 
+            onLoginSuccess={() => navigate('/')}
+            onNavigateToSignup={() => navigate('/signup')}
+          />
+        </AuthLayout>
+      } />
+      <Route path="/*" element={
+        <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+          <Header
+            sessions={sessions}
+            currentSessionId={currentSessionId}
+            showDropdown={showDropdown}
+            setShowDropdown={setShowDropdown}
+            dropdownRef={dropdownRef}
+            getSessionTopic={getSessionTopic}
+            getSessionCapability={getSessionCapability}
+            handleSessionSwitch={handleSessionSwitch}
+            handleDeleteSession={handleDeleteSession}
+            handleNewSession={handleNewSession}
+            capabilityInfo={getCapabilityInfo(selectedCapability)}
+            isAuthenticated={isAuthenticated}
+            onNavigateToLogin={() => navigate('/login')}
+            onNavigateToSignup={() => navigate('/signup')}
+            onLogout={() => {
+              // Clear all user-specific data
+              clearUserData();
+              localStorage.removeItem('isAuthenticated');
+              localStorage.removeItem('userEmail');
+              
+              // Reset application state
+              setSessions([]);
+              setMessages([]);
+              setCurrentSessionIdState(null);
+              setSelectedCapability(null);
+              setShowCapabilitySelector(false);
+              setShowDisclaimer(true);
+              
+              navigate('/login');
+            }}
+            selectedCapability={selectedCapability}
+            onSelectPrompt={handleQuickPrompt}
+          />
+          {showDisclaimer && (
+            <DisclaimerModal onClose={handleDisclaimerClose} />
+          )}
+          
+          {showCapabilitySelector && (
+            <CapabilitySelector onSelectCapability={handleCapabilitySelect} />
+          )}
+          <main className="flex-1 flex px-4 py-4 overflow-hidden max-w-7xl w-full mx-auto">
+            <div className="flex gap-2 flex-1 min-h-0">
+              {/* Left Column - Patient Info */}
+              <div className="w-65 flex-shrink-0 overflow-y-auto hide-scrollbar">
+                <div className="h-full flex flex-col">
+                  <h2 className="text-lg font-medium text-blue-900 mb-2">Patient Information</h2>
+                  <div className="flex-1">
+                    <PatientInfoForm
+                      patientInfo={patientInfo}
+                      onPatientInfoChange={setPatientInfo}
+                      onSubmitPatientInfo={handlePatientSubmit}
+                      isLoading={isLoading}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Right Column - Chat */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="bg-white rounded-lg shadow-md flex flex-col h-full relative">
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
-                {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 space-y-4">
-                    <Bot size={48} className="text-primary-500" />
+              {/* Right Column - Chat */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="bg-white rounded-lg shadow-md flex flex-col h-full relative">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
+                    {messages.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 space-y-4">
+                    <HeartPulseIcon size={48} className="text-primary-500" />
                     <div>
-                      <p className="text-lg font-medium">Welcome to the Healthcare Assistant</p>
+                      <div className={`inline-block px-3 py-1 rounded-full text-sm font-medium mb-3 ${getCapabilityInfo(selectedCapability).bgColor} ${getCapabilityInfo(selectedCapability).color}`}>
+                        {getCapabilityInfo(selectedCapability).name}
+                      </div>
+                      <p className="text-lg font-medium">Welcome to Your AI Medical Assistant</p>
                       <p className="max-w-md mx-auto mt-2">
-                        Ask me questions about health conditions, symptoms, treatments, or general health advice.
+                        {selectedCapability === 'radiology' 
+                          ? 'Upload medical images or ask about radiological findings, imaging techniques, and interpretation.'
+                          : selectedCapability === 'lab'
+                          ? 'Upload lab reports or ask about laboratory results, test interpretations, and clinical correlation.'
+                          : 'Ask me questions about health conditions, symptoms, treatments, or general health advice.'
+                        }
                       </p>
+                      <div className="mt-4 flex items-center justify-center">
+                        <button
+                          onClick={() => setShowCapabilitySelector(true)}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          <Settings size={16} />
+                          Change Assistant Mode
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center space-x-2 text-amber-600">
                       <AlertCircle size={16} />
-                      <span className="text-sm">For informational purposes only, not medical advice.</span>
+                      <span className="text-sm">For healthcare professionals only, not medical advice.</span>
                     </div>
                   </div>
-                ) : (
-                  messages.map((message) => (
-                    <ChatMessage key={message.id} message={message} onPreviewClick={handlePreviewClick} />
-                  ))
-                )}
-                {isLoading && (
-                  <div className="flex items-start space-x-3">
-                    <div className="flex-shrink-0 bg-primary-100 rounded-full p-2">
-                      <Bot size={24} className="text-primary-600" />
-                    </div>
-                    <div className="p-3 bg-primary-50 rounded-lg rounded-tl-none max-w-[85%]">
-                      <LoadingDots />
-                    </div>
+                    ) : (
+                      messages.map((message) => (
+                        <ChatMessage key={message.id} message={message} onPreviewClick={handlePreviewClick} onEdit={id => {
+                          setEditingMessageId(id);
+                          const msg = messages.find(m => m.id === id);
+                          if (msg) setInput(msg.content);
+                          if (inputRef.current) inputRef.current.focus();
+                        }} />
+                      ))
+                    )}
+                    {isLoading && (
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0 bg-primary-100 rounded-full p-2">
+                          <Bot size={24} className="text-primary-600" />
+                        </div>
+                        <div className="p-3 bg-primary-50 rounded-lg rounded-tl-none max-w-[85%]">
+                          <LoadingDots />
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
                   </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
 
-              {/* Quick Prompts */}
-              <QuickPrompts onSelectPrompt={handleQuickPrompt} />
-              {/* Fixed Input */}
-              <div className="sticky bottom-0 bg-white p-1 border-t border-gray-200"
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                {/* Drag & Drop Overlay */}
-                {isDragActive && (
-                  <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary-100 bg-opacity-80 rounded-lg border-2 border-primary-500 border-dashed pointer-events-none">
-                    <div className="text-primary-700 text-lg font-semibold flex flex-col items-center">
-                      <Upload size={36} className="mb-2" />
-                      Drop your PDF or image here to upload
-                    </div>
-                  </div>
-                )}
-                {/* File Type Selection Modal */}
-                {showFileTypeModal && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
-                    <div className="bg-white rounded-lg shadow-lg p-6 w-80 flex flex-col items-center">
-                      <h3 className="text-lg font-semibold mb-4">Select file type to upload</h3>
-                      {!pendingFileType && <>
-                        <button
-                          className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-primary-100 hover:bg-primary-200 text-primary-700 font-medium"
-                          onClick={() => handleFileTypeSelect('pdf')}
-                        >
-                          <FileText size={20} /> Lab Report (PDF)
-                        </button>
-                        <button
-                          className="w-full flex items-center gap-2 px-4 py-2 rounded bg-primary-100 hover:bg-primary-200 text-primary-700 font-medium"
-                          onClick={() => handleFileTypeSelect('image')}
-                        >
-                          <ImageIcon size={20} /> Radiology Image (JPG/PNG)
-                        </button>
-                        <button
-                          className="mt-4 text-sm text-gray-500 hover:underline"
-                          onClick={() => setShowFileTypeModal(false)}
-                        >Cancel</button>
-                      </>}
-                      {pendingFileType && (
-                        <>
-                          <input
-                            id="file-upload-input"
-                            type="file"
-                            accept={pendingFileType === 'pdf' ? '.pdf' : 'image/*'}
-                            className="block w-full text-sm text-gray-700 mb-4"
-                            onChange={handleFileUpload}
-                            disabled={isLoading || uploading || analyzing}
-                            autoFocus
-                            multiple
-                          />
-                          <button
-                            className="mt-2 text-sm text-gray-500 hover:underline"
-                            onClick={() => setPendingFileType(null)}
-                          >Back</button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <form onSubmit={handleSubmit} className="relative flex items-center">
-                  {/* Upload Button */}
-                  <label className="flex items-center cursor-pointer mr-2" title="Upload PDF or Image" onClick={e => { e.preventDefault(); setShowFileTypeModal(true); }}>
-                    <span className={`p-2 rounded-full ${uploading ? 'bg-gray-300' : 'bg-primary-100 hover:bg-primary-200'} transition-colors`}>
-                      <Upload size={20} className="text-primary-600" />
-                    </span>
-                  </label>
-                  {/* Upload Progress Bar */}
-                  {uploading && (
-                    <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden mr-2">
-                      <div className="h-full bg-primary-500 transition-all" style={{ width: `${uploadProgress}%` }} />
-                    </div>
-                  )}
-                  {/* Analyzing Indicator */}
-                  {analyzing && (
-                    <div className="flex items-center gap-1 text-primary-600 font-medium mr-2">
-                      <Loader2 className="animate-spin" size={18} />
-                      <span>Analyzing... {analyzeTimer}s</span>
-                    </div>
-                  )}
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Ask about symptoms, conditions, or health information..."
-                    className="w-full p-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none hide-scrollbar"
-                    rows={1}
-                    disabled={isLoading || uploading || analyzing}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e);
-                      }
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={!input.trim() || isLoading || uploading || analyzing}
-                    className="absolute right-3 bottom-3 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
+
+                  {/* Fixed Input */}
+                  <div className="sticky bottom-0 bg-white p-1 border-t border-gray-200"
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
                   >
-                    <ArrowUp size={20} />
-                  </button>
-                </form>
+                    {/* Drag & Drop Overlay */}
+                    {isDragActive && selectedCapability && (
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary-100 bg-opacity-80 rounded-lg border-2 border-primary-500 border-dashed pointer-events-none">
+                        <div className="text-primary-700 text-lg font-semibold flex flex-col items-center">
+                          <Upload size={36} className="mb-2" />
+                          {selectedCapability === 'general' && "Drop your prescription/document (PDF) here"}
+                          {selectedCapability === 'lab' && "Drop your lab report (PDF) here"}
+                          {selectedCapability === 'radiology' && "Drop your medical image here"}
+                        </div>
+                      </div>
+                    )}
+                    {/* File Type Selection Modal */}
+                    {showFileTypeModal && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+                        <div className="bg-white rounded-lg shadow-lg p-6 w-80 flex flex-col items-center">
+                          <h3 className="text-lg font-semibold mb-4">Select file type to upload</h3>
+                          {!pendingFileType && <>
+                            {/* General Medical - Show prescription upload */}
+                            {selectedCapability === 'general' && (
+                              <button
+                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium"
+                                onClick={() => handleFileTypeSelect('pdf')}
+                              >
+                                <FileText size={20} /> Prescription/Document (PDF)
+                              </button>
+                            )}
+                            
+                            {/* Lab Mode - Show lab report upload */}
+                            {selectedCapability === 'lab' && (
+                              <button
+                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-green-100 hover:bg-green-200 text-green-700 font-medium"
+                                onClick={() => handleFileTypeSelect('pdf')}
+                              >
+                                <FileText size={20} /> Lab Report (PDF)
+                              </button>
+                            )}
+                            
+                            {/* Radiology Mode - Show image upload */}
+                            {selectedCapability === 'radiology' && (
+                              <button
+                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium"
+                                onClick={() => handleFileTypeSelect('image')}
+                              >
+                                <ImageIcon size={20} /> Medical Image (JPG/PNG/DICOM)
+                              </button>
+                            )}
+                            
+                            {/* If no capability selected or unrecognized capability */}
+                            {!selectedCapability && (
+                              <div className="text-center text-gray-500 mb-4">
+                                <p className="text-sm">Please select an assistant capability first</p>
+                              </div>
+                            )}
+                            
+                            <button
+                              className="mt-4 text-sm text-gray-500 hover:underline"
+                              onClick={() => setShowFileTypeModal(false)}
+                            >Cancel</button>
+                          </>}
+                          {pendingFileType && (
+                            <>
+                              <input
+                                id="file-upload-input"
+                                type="file"
+                                accept={pendingFileType === 'pdf' ? '.pdf' : 'image/*'}
+                                className="block w-full text-sm text-gray-700 mb-4"
+                                onChange={handleFileUpload}
+                                disabled={isLoading || uploading || analyzing}
+                                autoFocus
+                                multiple
+                              />
+                              <button
+                                className="mt-2 text-sm text-gray-500 hover:underline"
+                                onClick={() => setPendingFileType(null)}
+                              >Back</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <form onSubmit={handleSubmit} className="relative flex items-center">
+                      {/* Upload Button */}
+                      <label 
+                        className="flex items-center cursor-pointer mr-2" 
+                        title={
+                          selectedCapability === 'general' ? "Upload Prescription/Document" :
+                          selectedCapability === 'radiology' ? "Upload Medical Image" :
+                          selectedCapability === 'lab' ? "Upload Lab Report" :
+                          "Select capability first"
+                        } 
+                        onClick={e => { 
+                          e.preventDefault(); 
+                          if (selectedCapability) {
+                            setShowFileTypeModal(true); 
+                          }
+                        }}
+                      >
+                        <span className={`p-2 rounded-full ${
+                          uploading ? 'bg-gray-300' : 
+                          !selectedCapability ? 'bg-gray-200 cursor-not-allowed' :
+                          'bg-primary-100 hover:bg-primary-200'
+                        } transition-colors`}>
+                          <Upload size={20} className={`${!selectedCapability ? 'text-gray-400' : 'text-primary-600'}`} />
+                        </span>
+                      </label>
+                      {/* Upload Progress Bar */}
+                      {uploading && (
+                        <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden mr-2">
+                          <div className="h-full bg-primary-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                        </div>
+                      )}
+                      {/* Analyzing Indicator */}
+                      {analyzing && (
+                        <div className="flex items-center gap-1 text-primary-600 font-medium mr-2">
+                          <Loader2 className="animate-spin" size={18} />
+                          <span>Analyzing... {analyzeTimer}s</span>
+                        </div>
+                      )}
+                      <textarea
+                        ref={inputRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder={getPlaceholderText(selectedCapability)}
+                        className="w-full p-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none hide-scrollbar"
+                        rows={1}
+                        disabled={isLoading || uploading || analyzing || !selectedCapability}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSubmit(e);
+                          }
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!input.trim() || isLoading || uploading || analyzing}
+                        className="absolute right-3 bottom-3 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
+                      >
+                        <ArrowUp size={20} />
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </main>
+          </main>
 
-      {/* File Preview Modal */}
-      {previewFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-          <div className="relative bg-white rounded-lg shadow-lg p-4 max-w-2xl w-full flex flex-col items-center">
-            <button
-              className="absolute top-2 right-2 p-1 rounded-full bg-gray-200 hover:bg-gray-300"
-              onClick={() => setPreviewFile(null)}
-              title="Close"
-            >
-              <X size={22} />
-            </button>
-            {previewFile.type.startsWith('image/') && (
-              <div className="flex items-center mb-2 gap-2">
-                <button onClick={handleZoomOut} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Zoom out">-</button>
-                <span className="text-sm font-medium">{Math.round(zoom * 100)}%</span>
-                <button onClick={handleZoomIn} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Zoom in">+</button>
-                <button onClick={handleResetZoom} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Reset zoom">Reset</button>
+          {/* File Preview Modal */}
+          {previewFile && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
+              <div className="relative bg-white rounded-lg shadow-lg p-4 max-w-2xl w-full flex flex-col items-center">
+                <button
+                  className="absolute top-2 right-2 p-1 rounded-full bg-gray-200 hover:bg-gray-300"
+                  onClick={() => setPreviewFile(null)}
+                  title="Close"
+                >
+                  <X size={22} />
+                </button>
+                {previewFile.type.startsWith('image/') && (
+                  <div className="flex items-center mb-2 gap-2">
+                    <button onClick={handleZoomOut} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Zoom out">-</button>
+                    <span className="text-sm font-medium">{Math.round(zoom * 100)}%</span>
+                    <button onClick={handleZoomIn} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Zoom in">+</button>
+                    <button onClick={handleResetZoom} className="p-1 rounded bg-gray-200 hover:bg-gray-300" title="Reset zoom">Reset</button>
+                  </div>
+                )}
+                {previewFile.type.startsWith('image/') ? (
+                  <div
+                    className="overflow-hidden flex items-center justify-center w-full h-[70vh] bg-gray-50 rounded"
+                    style={{ cursor: isPanning ? 'grabbing' : zoom > 1 ? 'grab' : 'default' }}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onWheel={handleWheel}
+                  >
+                    <img
+                      src={previewFile.url}
+                      alt={previewFile.name}
+                      style={{
+                        transform: `scale(${zoom}) translate(${panOffset.x / zoom}px, ${panOffset.y / zoom}px)`,
+                        transition: isPanning ? 'none' : 'transform 0.2s',
+                        maxHeight: '70vh',
+                        maxWidth: '100%',
+                        userSelect: 'none',
+                        pointerEvents: 'all',
+                      }}
+                      draggable={false}
+                    />
+                  </div>
+                ) : previewFile.type === 'application/pdf' ? (
+                  <div className="flex flex-col items-center">
+                    <FileText size={48} className="text-primary-400 mb-2" />
+                    <span className="mb-2 font-medium text-gray-700">{previewFile.name}</span>
+                    <a href={previewFile.url} download={previewFile.name} className="text-primary-600 underline">Download PDF</a>
+                  </div>
+                ) : null}
               </div>
-            )}
-            {previewFile.type.startsWith('image/') ? (
-              <div
-                className="overflow-hidden flex items-center justify-center w-full h-[70vh] bg-gray-50 rounded"
-                style={{ cursor: isPanning ? 'grabbing' : zoom > 1 ? 'grab' : 'default' }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
-              >
-                <img
-                  src={previewFile.url}
-                  alt={previewFile.name}
-                  style={{
-                    transform: `scale(${zoom}) translate(${panOffset.x / zoom}px, ${panOffset.y / zoom}px)`,
-                    transition: isPanning ? 'none' : 'transform 0.2s',
-                    maxHeight: '70vh',
-                    maxWidth: '100%',
-                    userSelect: 'none',
-                    pointerEvents: 'all',
-                  }}
-                  draggable={false}
-                />
-              </div>
-            ) : previewFile.type === 'application/pdf' ? (
-              <div className="flex flex-col items-center">
-                <FileText size={48} className="text-primary-400 mb-2" />
-                <span className="mb-2 font-medium text-gray-700">{previewFile.name}</span>
-                <a href={previewFile.url} download={previewFile.name} className="text-primary-600 underline">Download PDF</a>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      <footer className="py-3 px-4 text-center text-sm text-gray-500 border-t border-gray-200">
-        <p>© 2025 Healthcare Chatbot. Assistance For Professional Medical Advice.</p>
-      </footer>
-    </div>
+          <footer className="py-3 px-4 text-center text-sm text-gray-500 border-t border-gray-200">
+            <p>© 2025 Healthcare Chatbot. Assistance For Professional Medical Advice.</p>
+          </footer>
+        </div>
+      } />
+    </Routes>
   );
 };
 

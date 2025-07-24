@@ -11,6 +11,7 @@ interface PatientInfoFormProps {
 
 const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoChange, onSubmitPatientInfo, isLoading }) => {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const fieldRefs = {
     age: useRef<HTMLInputElement>(null),
     weight: useRef<HTMLInputElement>(null),
@@ -63,6 +64,8 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
       if (nextField && fieldRefs[nextField].current) {
         fieldRefs[nextField].current?.focus();
       }
+      // If no next field (i.e., we're on the last field), don't do anything
+      // This prevents accidental form submission when pressing Enter in the last field
     }
   };
 
@@ -82,7 +85,18 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    
+    // Show confirmation dialog before submitting
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmSubmit = () => {
+    setShowConfirmation(false);
     onSubmitPatientInfo(patientInfo);
+  };
+
+  const handleCancelSubmit = () => {
+    setShowConfirmation(false);
   };
 
   return (
@@ -187,6 +201,33 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
           Treatment Plan
         </button>
       </div>
+
+      {/* Confirmation Dialog */}
+      {showConfirmation && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-3 text-gray-800">Generate Treatment Plan?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This will generate an AI treatment plan based on the patient information you've entered. 
+              This will send a message to the chat requesting a treatment plan.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={handleCancelSubmit}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSubmit}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+              >
+                Yes, Generate Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 };
