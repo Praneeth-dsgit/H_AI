@@ -11,7 +11,6 @@ interface PatientInfoFormProps {
 
 const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoChange, onSubmitPatientInfo, isLoading }) => {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [showConfirmation, setShowConfirmation] = useState(false);
   const fieldRefs = {
     age: useRef<HTMLInputElement>(null),
     weight: useRef<HTMLInputElement>(null),
@@ -86,21 +85,12 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
     e.preventDefault();
     if (!validate()) return;
     
-    // Show confirmation dialog before submitting
-    setShowConfirmation(true);
-  };
-
-  const handleConfirmSubmit = () => {
-    setShowConfirmation(false);
+    // Directly submit without confirmation
     onSubmitPatientInfo(patientInfo);
   };
 
-  const handleCancelSubmit = () => {
-    setShowConfirmation(false);
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="w-64 bg-white rounded-lg shadow-md p-4 space-y-4">
+    <form onSubmit={handleSubmit} className="w-64 healthcare-card p-6 space-y-4">
       <div className="space-y-3">
         {fieldOrder.map((field) => {
           const label = {
@@ -189,45 +179,24 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
         </button>
         <button
           type="submit"
-          className="text-sm px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 transition flex items-center justify-center min-w-[120px]"
+          className={`text-sm px-4 py-2 rounded-md text-white transition flex items-center justify-center w-[140px] h-[36px] ${
+            isLoading 
+              ? 'bg-blue-500 cursor-not-allowed' 
+              : 'bg-blue-600 hover:bg-blue-700'
+          }`}
           disabled={isLoading}
         >
           {isLoading ? (
-            <svg className="animate-spin h-4 w-4 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
             </svg>
           ) : null}
-          Treatment Plan
+          <span className="whitespace-nowrap">Treatment Plan</span>
         </button>
       </div>
 
-      {/* Confirmation Dialog */}
-      {showConfirmation && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-lg">
-            <h3 className="text-lg font-semibold mb-3 text-gray-800">Generate Treatment Plan?</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              This will generate an AI treatment plan based on the patient information you've entered. 
-              This will send a message to the chat requesting a treatment plan.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={handleCancelSubmit}
-                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmSubmit}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-              >
-                Yes, Generate Plan
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
     </form>
   );
 };

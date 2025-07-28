@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Activity, Trash2, User, LogIn, UserPlus, LogOut, ChevronDown, HelpCircle, PlusCircle } from 'lucide-react';
+import { Activity, Trash2, User, LogIn, UserPlus, LogOut, ChevronDown, HelpCircle, PlusCircle, Stethoscope, Award, Brain, TestTube, Users, MessageSquare, FileText, Image as ImageIcon } from 'lucide-react';
 import AboutModal from './AboutModal';
 import PrivacyModal from './PrivacyModal';
 import HelpModal from './HelpModal';
@@ -131,19 +131,29 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="bg-white shadow-sm">
-        <div className="container mx-auto px-4 py-3 max-w-7xl">
+      <header className="bg-white shadow-sm border-b border-gray-100">
+        <div className="container mx-auto px-6 py-4 max-w-7xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <div className="flex items-center space-x-4 min-w-[180px]">
-                <Activity className="h-6 w-6 text-primary-500" />
-                <span className="font-bold text-2xl text-indigo-800">MedChat</span>
+              <div className="flex items-center space-x-4 min-w-[200px]">
+                <div className="relative">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-800 rounded-xl flex items-center justify-center shadow-lg">
+                    <Stethoscope className="h-6 w-6 text-white" />
+                  </div>
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                    MedChat Pro
+                  </h1>
+                  <p className="text-xs text-gray-500 font-medium">Healthcare AI Assistant</p>
+                </div>
                 {capabilityInfo && (
                   <div className="flex items-center space-x-2">
                     <div className={`px-2 py-1 rounded-full text-xs font-medium ${capabilityInfo.bgColor} ${capabilityInfo.color}`}>
                       {capabilityInfo.name}
                     </div>
-                    {selectedCapability && onSelectPrompt && (
+                    {selectedCapability && selectedCapability !== 'engagement' && onSelectPrompt && (
                       <div className="relative" ref={faqDropdownRef}>
                         <button
                           onClick={() => setShowFaqDropdown(!showFaqDropdown)}

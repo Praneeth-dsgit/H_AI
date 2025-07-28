@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Brain, FileText, Stethoscope, Users } from 'lucide-react';
+import { Bot, Brain, FileText, Stethoscope, Users, Shield, Award, Activity } from 'lucide-react';
 
 export type Capability = 'general' | 'radiology' | 'lab' | 'engagement';
 
@@ -66,7 +66,7 @@ const CapabilitySelector: React.FC<CapabilitySelectorProps> = ({ onSelectCapabil
        cardHover: 'hover:border-orange-300 hover:shadow-orange-100',
        textHover: 'group-hover:text-orange-900',
        features: [
-         'Patient education materials',
+         'Chat with your data',
          'Treatment adherence support',
          'Care plan communication',
          'Follow-up coordination',
@@ -80,15 +80,23 @@ const CapabilitySelector: React.FC<CapabilitySelectorProps> = ({ onSelectCapabil
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-8 z-50">
       <div className="bg-white rounded-3xl shadow-2xl max-w-6xl w-full h-[99vh] mx-auto transform scale-x-100 scale-y-80 border border-gray-100">
         <div className="p-8">
-          <div className="text-center mb-6">
-            <div className="flex items-center justify-center mb-4">
-              <div className="bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl p-4 mr-4 shadow-xl">
-                <Stethoscope size={26} className="text-white" />
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center mb-6">
+              <div className="relative">
+                <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-4 mr-4 shadow-xl">
+                  <Stethoscope size={28} className="text-white" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
               </div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary-600 to-primary-700 bg-clip-text text-transparent">MedChat</h1>
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                  MedChat Pro
+                </h1>
+                <p className="text-sm text-gray-500 font-medium">Healthcare AI Assistant</p>
+              </div>
             </div>
-            <p className="text-gray-600 text-base">
-              Select the specialized medical assistance mode that best fits your current needs
+            <p className="text-gray-600 text-base max-w-2xl mx-auto">
+              Choose your specialized medical assistance mode.
             </p>
           </div>
 
@@ -137,16 +145,13 @@ const CapabilitySelector: React.FC<CapabilitySelectorProps> = ({ onSelectCapabil
         </div>
 
           <div className="mt-8 text-center px-8">
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4"> 
               <div className="flex items-center justify-center mb-1">
-                <Bot size={16} className="text-amber-600 mr-2" />
                 <span className="font-medium text-amber-800 text-sm">Professional Use Only</span>
               </div>
               <p className="text-amber-700 text-xs">
                 This AI assistant is designed for healthcare professionals to support clinical decision-making. 
                 It is not a replacement for professional medical judgment or patient examination.
               </p>
-            </div>
           </div>
         
       </div>

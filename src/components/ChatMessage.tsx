@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, BotIcon, UserCircle, FileText, Download, Copy, Stethoscope, Smile } from 'lucide-react';
+import {UserCircle, FileText, Download, Copy, Stethoscope, Smile, Award, Brain, TestTube, Users } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Message } from '../types';
 import { formatTime } from '../utils/date';
@@ -93,15 +93,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick, onEd
       style={{ animation: 'fadeInUp 0.5s' }}
     >
       {!isUser && (
-        <div className="flex-shrink-0 bg-primary-100 rounded-full p-2 shadow-md border-2 border-primary-200">
-          <Stethoscope size={24} className="text-primary-600" />
+        <div className="flex-shrink-0 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full p-3 shadow-lg border-2 border-blue-200">
+          <Stethoscope size={24} className="text-white" />
         </div>
       )}
       <div
         className={
           `p-4 rounded-2xl max-w-[85%] relative group shadow-lg transition-all duration-200 ` +
-          `${isUser ? 'bg-primary-500 text-white rounded-tr-md' : 'bg-primary-50 text-gray-800 rounded-tl-md'} ` +
-          `${message.isError ? 'bg-accent-100 text-accent-800 border border-accent-300' : ''}`
+          `${isUser ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-md' : 'bg-white text-gray-800 rounded-tl-md border border-gray-100'} ` +
+          `${message.isError ? 'bg-red-50 text-red-800 border border-red-200' : ''}`
         }
       >
         <div className={`pb-1 mb-1 text-xs font-medium ${isUser ? 'text-primary-100' : 'text-gray-400'}`}

@@ -1,10 +1,11 @@
 import { type FC, useState, useEffect, useRef } from 'react';
-import { ArrowUp, Bot, FileDown, UserCircle, Trash2, AlertCircle, Upload, FileText, Image as ImageIcon, Loader2, X, Settings, HeartPulseIcon,} from 'lucide-react';
+import { ArrowUp, Bot, FileDown, UserCircle, Trash2, AlertCircle, Upload, FileText, Image as ImageIcon, Loader2, X, Settings, Heart, Activity, Square, Stethoscope} from 'lucide-react';
 import ChatMessage from './components/ChatMessage';
 import LoadingDots from './components/LoadingDots';
 import DisclaimerModal from './components/DisclaimerModal';
 import CapabilitySelector, { type Capability } from './components/CapabilitySelector';
 import PatientInfoForm from './components/PatientInfoForm';
+import PatientEngagement from './components/PatientEngagement';
 import { Message, PatientInfo } from './types';
 import {
   getInitialMessages,
@@ -101,6 +102,8 @@ const App: FC = () => {
   const [lastAiMessage, setLastAiMessage] = useState<string | null>(null);
   // Add state for editing
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  // Add state for abort controller
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const [signupEmail, setSignupEmail] = useState('');
   const [otpVerified, setOtpVerified] = useState(false);
@@ -166,6 +169,8 @@ const App: FC = () => {
         return { name: 'Radiology Assistant', color: 'text-purple-600', bgColor: 'bg-purple-50' };
       case 'lab':
         return { name: 'Lab Interpretation Assistant', color: 'text-green-600', bgColor: 'bg-green-50' };
+      case 'engagement':
+        return { name: 'Patient Engagement Dashboard', color: 'text-orange-600', bgColor: 'bg-orange-50' };
       default:
         return { name: 'AI Assistant', color: 'text-gray-600', bgColor: 'bg-gray-50' };
     }
@@ -350,7 +355,19 @@ const App: FC = () => {
   };
 
   const handlePatientSubmit = async (info: PatientInfo) => {
-    const messageContent = "Please provide a treatment plan based on the entered patient information.";
+    // Create a detailed message with patient information
+    const patientDetails = [
+      `Age: ${info.age} years`,
+      `Gender: ${info.gender}`,
+      `Weight: ${info.weight} kg`,
+      `Height: ${info.height} cm`,
+      info.bloodPressure ? `Blood Pressure: ${info.bloodPressure}` : null,
+      info.allergies ? `Allergies: ${info.allergies}` : null,
+      info.medications ? `Current Medications: ${info.medications}` : null,
+      info.medicalHistory ? `Medical History: ${info.medicalHistory}` : null,
+    ].filter(Boolean).join(', ');
+
+    const messageContent = `Please provide a comprehensive treatment plan and health recommendations for this patient: ${patientDetails}. Include preventive care, lifestyle recommendations, and any necessary follow-up actions.`;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -363,20 +380,16 @@ const App: FC = () => {
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
-    const tempMessageId = 'assistant-' + Date.now().toString();
-    const tempMessage: Message = {
-      id: tempMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, tempMessage]);
+    // Create abort controller for this request
+    const controller = new AbortController();
+    setAbortController(controller);
 
     try {
       const resetContext = shouldResetContext(userMessage.content);
       const isFollowUp = !resetContext;
       const resetMessage = resetContext ? userMessage.content.trim().toLowerCase() : null;
       const response = await fetch('http://localhost:5000/api/chat/stream', {
+        signal: controller.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -394,6 +407,8 @@ const App: FC = () => {
       if (!reader) throw new Error('No reader available');
 
       let assistantContent = '';
+      let hasStartedReceiving = false;
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -405,32 +420,52 @@ const App: FC = () => {
             const content = line.slice(6);
             const processedContent = content.replace(/\\n/g, '\n');
             assistantContent += processedContent;
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === tempMessageId
-                  ? { ...msg, content: (msg.content || '') + processedContent }
-                  : msg
-              )
-            );
+            
+            // Add the message to the chat only when we start receiving content
+            if (!hasStartedReceiving) {
+              hasStartedReceiving = true;
+              const assistantMessage: Message = {
+                id: Date.now().toString(),
+                role: 'assistant',
+                content: processedContent,
+                timestamp: new Date().toISOString(),
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+            } else {
+              // Update the last message with new content
+              setMessages(prev => {
+                const newMessages = [...prev];
+                if (newMessages.length > 0) {
+                  newMessages[newMessages.length - 1] = {
+                    ...newMessages[newMessages.length - 1],
+                    content: assistantContent
+                  };
+                }
+                return newMessages;
+              });
+            }
           }
         }
       }
       setLastAiMessage(assistantContent);
     } catch (error) {
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.id === tempMessageId
-            ? {
-                ...msg,
-                content: 'An error occurred while generating the treatment plan.',
-                isError: true,
-              }
-            : msg
-        )
-      );
+      // Check if the error is due to user cancellation
+      const isUserCancellation = error instanceof Error && error.name === 'AbortError';
+      
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: isUserCancellation 
+          ? "Treatment plan generation was stopped by user."
+          : 'An error occurred while generating the treatment plan.',
+        timestamp: new Date().toISOString(),
+        isError: true,
+      };
+      setMessages(prev => [...prev, errorMessage]);
       setLastAiMessage(null);
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 
@@ -475,14 +510,7 @@ const App: FC = () => {
         setInput('');
         // Re-send the edited message to the backend for a new AI response
         const editedUserMessage = newMessages[userMsgIdx];
-        const tempMessageId = (Date.now() + 1).toString();
-        const tempMessage: Message = {
-          id: tempMessageId,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, tempMessage]);
+        setIsLoading(true);
         try {
           const resetContext = shouldResetContext(editedUserMessage.content);
           const isFollowUp = !resetContext;
@@ -506,6 +534,8 @@ const App: FC = () => {
           const reader = response.body?.getReader();
           if (!reader) throw new Error('No reader available');
           let assistantContent = '';
+          let hasStartedReceiving = false;
+          
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -519,32 +549,52 @@ const App: FC = () => {
                 }
                 const processedContent = content.replace(/\\n/g, '\n');
                 assistantContent += processedContent;
-                setMessages(prev => prev.map(msg =>
-                  msg.id === tempMessageId
-                    ? {
-                        ...msg,
-                        content: (msg.content || '') + processedContent
-                      }
-                    : msg
-                ));
+                
+                // Add the message to the chat only when we start receiving content
+                if (!hasStartedReceiving) {
+                  hasStartedReceiving = true;
+                  const assistantMessage: Message = {
+                    id: Date.now().toString(),
+                    role: 'assistant',
+                    content: processedContent,
+                    timestamp: new Date().toISOString(),
+                  };
+                  setMessages(prev => [...prev, assistantMessage]);
+                } else {
+                  // Update the last message with new content
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    if (newMessages.length > 0) {
+                      newMessages[newMessages.length - 1] = {
+                        ...newMessages[newMessages.length - 1],
+                        content: assistantContent
+                      };
+                    }
+                    return newMessages;
+                  });
+                }
               }
             }
           }
           setLastAiMessage(assistantContent);
         } catch (error) {
+          // Check if the error is due to user cancellation
+          const isUserCancellation = error instanceof Error && error.name === 'AbortError';
+          
           const errorMessage: Message = {
-            id: (Date.now() + 1).toString(),
+            id: Date.now().toString(),
             role: 'assistant',
-            content: "I'm sorry, I encountered an error processing your request. Please try again later.",
+            content: isUserCancellation 
+              ? "User Interrupt"
+              : "I'm sorry, I encountered an error processing your request. Please try again later.",
             timestamp: new Date().toISOString(),
             isError: true,
           };
-          setMessages(prev => prev.map(msg =>
-            msg.id === tempMessageId ? errorMessage : msg
-          ));
+          setMessages(prev => [...prev, errorMessage]);
           setLastAiMessage(null);
         } finally {
           setIsLoading(false);
+          setAbortController(null);
         }
         return;
       }
@@ -562,20 +612,16 @@ const App: FC = () => {
     setInput('');
     setIsLoading(true);
 
-    const tempMessageId = (Date.now() + 1).toString();
-    const tempMessage: Message = {
-      id: tempMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, tempMessage]);
+    // Create abort controller for this request
+    const controller = new AbortController();
+    setAbortController(controller);
 
     try {
       const resetContext = shouldResetContext(userMessage.content);
       const isFollowUp = !resetContext;
       const resetMessage = resetContext ? userMessage.content.trim().toLowerCase() : null;
       const response = await fetch('http://localhost:5000/api/chat/stream', {
+        signal: controller.signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -597,6 +643,8 @@ const App: FC = () => {
       if (!reader) throw new Error('No reader available');
 
       let assistantContent = '';
+      let hasStartedReceiving = false;
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -611,16 +659,31 @@ const App: FC = () => {
             }
 
             const processedContent = content.replace(/\\n/g, '\n');
-
             assistantContent += processedContent;
-            setMessages(prev => prev.map(msg =>
-              msg.id === tempMessageId
-                ? {
-                    ...msg,
-                    content: (msg.content || '') + processedContent
-                  }
-                : msg
-            ));
+            
+            // Add the message to the chat only when we start receiving content
+            if (!hasStartedReceiving) {
+              hasStartedReceiving = true;
+              const assistantMessage: Message = {
+                id: Date.now().toString(),
+                role: 'assistant',
+                content: processedContent,
+                timestamp: new Date().toISOString(),
+              };
+              setMessages(prev => [...prev, assistantMessage]);
+            } else {
+              // Update the last message with new content
+              setMessages(prev => {
+                const newMessages = [...prev];
+                if (newMessages.length > 0) {
+                  newMessages[newMessages.length - 1] = {
+                    ...newMessages[newMessages.length - 1],
+                    content: assistantContent
+                  };
+                }
+                return newMessages;
+              });
+            }
           }
         }
       }
@@ -628,20 +691,25 @@ const App: FC = () => {
 
     } catch (error) {
       console.error('Error:', error);
+      
+      // Check if the error is due to user cancellation
+      const isUserCancellation = error instanceof Error && error.name === 'AbortError';
+      
       const errorMessage: Message = {
-        id: tempMessageId,
+        id: Date.now().toString(),
         role: 'assistant',
-        content: "I'm sorry, I encountered an error processing your request. Please try again later.",
+        content: isUserCancellation 
+          ? "User Interrupt"
+          : "I'm sorry, I encountered an error processing your request. Please try again later.",
         timestamp: new Date().toISOString(),
         isError: true,
       };
 
-      setMessages(prev => prev.map(msg =>
-        msg.id === tempMessageId ? errorMessage : msg
-      ));
+      setMessages(prev => [...prev, errorMessage]);
       setLastAiMessage(null);
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 
@@ -654,6 +722,16 @@ const App: FC = () => {
     if (window.confirm('Are you sure you want to clear the chat history?')) {
       setMessages([]);
     }
+  };
+
+  const handleStopGeneration = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setIsLoading(false);
+    }
+    // Also stop analyzing state
+    setAnalyzing(false);
   };
 
   // Helper to generate PDF thumbnail
@@ -886,7 +964,7 @@ const App: FC = () => {
           : firstUserMsg.content;
       }
     }
-    return 'New Session';
+    return 'New Chat';
   }
 
   // Get session capability
@@ -899,7 +977,7 @@ const App: FC = () => {
       case 'general': return '🩺 General';
       case 'radiology': return '🧠 Radiology';
       case 'lab': return '📊 Lab';
-      default: return '❓ Not Set';
+      default: return '👥 Patient Engagement';  
     }
   }
 
@@ -971,230 +1049,249 @@ const App: FC = () => {
           )}
           <main className="flex-1 flex px-4 py-4 overflow-hidden max-w-7xl w-full mx-auto">
             <div className="flex gap-2 flex-1 min-h-0">
-              {/* Left Column - Patient Info */}
-              <div className="w-65 flex-shrink-0 overflow-y-auto hide-scrollbar">
-                <div className="h-full flex flex-col">
-                  <h2 className="text-lg font-medium text-blue-900 mb-2">Patient Information</h2>
-                  <div className="flex-1">
-                    <PatientInfoForm
-                      patientInfo={patientInfo}
-                      onPatientInfoChange={setPatientInfo}
-                      onSubmitPatientInfo={handlePatientSubmit}
-                      isLoading={isLoading}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column - Chat */}
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <div className="bg-white rounded-lg shadow-md flex flex-col h-full relative">
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
-                    {messages.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 space-y-4">
-                    <HeartPulseIcon size={48} className="text-primary-500" />
-                    <div>
-                      <div className={`inline-block px-3 py-1 rounded-full text-sm font-medium mb-3 ${getCapabilityInfo(selectedCapability).bgColor} ${getCapabilityInfo(selectedCapability).color}`}>
-                        {getCapabilityInfo(selectedCapability).name}
-                      </div>
-                      <p className="text-lg font-medium">Welcome to Your AI Medical Assistant</p>
-                      <p className="max-w-md mx-auto mt-2">
-                        {selectedCapability === 'radiology' 
-                          ? 'Upload medical images or ask about radiological findings, imaging techniques, and interpretation.'
-                          : selectedCapability === 'lab'
-                          ? 'Upload lab reports or ask about laboratory results, test interpretations, and clinical correlation.'
-                          : 'Ask me questions about health conditions, symptoms, treatments, or general health advice.'
-                        }
-                      </p>
-                      <div className="mt-4 flex items-center justify-center">
-                        <button
-                          onClick={() => setShowCapabilitySelector(true)}
-                          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <Settings size={16} />
-                          Change Assistant Mode
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2 text-amber-600">
-                      <AlertCircle size={16} />
-                      <span className="text-sm">For healthcare professionals only, not medical advice.</span>
-                    </div>
-                  </div>
-                    ) : (
-                      messages.map((message) => (
-                        <ChatMessage key={message.id} message={message} onPreviewClick={handlePreviewClick} onEdit={id => {
-                          setEditingMessageId(id);
-                          const msg = messages.find(m => m.id === id);
-                          if (msg) setInput(msg.content);
-                          if (inputRef.current) inputRef.current.focus();
-                        }} />
-                      ))
-                    )}
-                    {isLoading && (
-                      <div className="flex items-start space-x-3">
-                        <div className="flex-shrink-0 bg-primary-100 rounded-full p-2">
-                          <Bot size={24} className="text-primary-600" />
-                        </div>
-                        <div className="p-3 bg-primary-50 rounded-lg rounded-tl-none max-w-[85%]">
-                          <LoadingDots />
-                        </div>
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-
-                  {/* Fixed Input */}
-                  <div className="sticky bottom-0 bg-white p-1 border-t border-gray-200"
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                  >
-                    {/* Drag & Drop Overlay */}
-                    {isDragActive && selectedCapability && (
-                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary-100 bg-opacity-80 rounded-lg border-2 border-primary-500 border-dashed pointer-events-none">
-                        <div className="text-primary-700 text-lg font-semibold flex flex-col items-center">
-                          <Upload size={36} className="mb-2" />
-                          {selectedCapability === 'general' && "Drop your prescription/document (PDF) here"}
-                          {selectedCapability === 'lab' && "Drop your lab report (PDF) here"}
-                          {selectedCapability === 'radiology' && "Drop your medical image here"}
-                        </div>
-                      </div>
-                    )}
-                    {/* File Type Selection Modal */}
-                    {showFileTypeModal && (
-                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
-                        <div className="bg-white rounded-lg shadow-lg p-6 w-80 flex flex-col items-center">
-                          <h3 className="text-lg font-semibold mb-4">Select file type to upload</h3>
-                          {!pendingFileType && <>
-                            {/* General Medical - Show prescription upload */}
-                            {selectedCapability === 'general' && (
-                              <button
-                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium"
-                                onClick={() => handleFileTypeSelect('pdf')}
-                              >
-                                <FileText size={20} /> Prescription/Document (PDF)
-                              </button>
-                            )}
-                            
-                            {/* Lab Mode - Show lab report upload */}
-                            {selectedCapability === 'lab' && (
-                              <button
-                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-green-100 hover:bg-green-200 text-green-700 font-medium"
-                                onClick={() => handleFileTypeSelect('pdf')}
-                              >
-                                <FileText size={20} /> Lab Report (PDF)
-                              </button>
-                            )}
-                            
-                            {/* Radiology Mode - Show image upload */}
-                            {selectedCapability === 'radiology' && (
-                              <button
-                                className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium"
-                                onClick={() => handleFileTypeSelect('image')}
-                              >
-                                <ImageIcon size={20} /> Medical Image (JPG/PNG/DICOM)
-                              </button>
-                            )}
-                            
-                            {/* If no capability selected or unrecognized capability */}
-                            {!selectedCapability && (
-                              <div className="text-center text-gray-500 mb-4">
-                                <p className="text-sm">Please select an assistant capability first</p>
-                              </div>
-                            )}
-                            
-                            <button
-                              className="mt-4 text-sm text-gray-500 hover:underline"
-                              onClick={() => setShowFileTypeModal(false)}
-                            >Cancel</button>
-                          </>}
-                          {pendingFileType && (
-                            <>
-                              <input
-                                id="file-upload-input"
-                                type="file"
-                                accept={pendingFileType === 'pdf' ? '.pdf' : 'image/*'}
-                                className="block w-full text-sm text-gray-700 mb-4"
-                                onChange={handleFileUpload}
-                                disabled={isLoading || uploading || analyzing}
-                                autoFocus
-                                multiple
-                              />
-                              <button
-                                className="mt-2 text-sm text-gray-500 hover:underline"
-                                onClick={() => setPendingFileType(null)}
-                              >Back</button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    <form onSubmit={handleSubmit} className="relative flex items-center">
-                      {/* Upload Button */}
-                      <label 
-                        className="flex items-center cursor-pointer mr-2" 
-                        title={
-                          selectedCapability === 'general' ? "Upload Prescription/Document" :
-                          selectedCapability === 'radiology' ? "Upload Medical Image" :
-                          selectedCapability === 'lab' ? "Upload Lab Report" :
-                          "Select capability first"
-                        } 
-                        onClick={e => { 
-                          e.preventDefault(); 
-                          if (selectedCapability) {
-                            setShowFileTypeModal(true); 
-                          }
-                        }}
-                      >
-                        <span className={`p-2 rounded-full ${
-                          uploading ? 'bg-gray-300' : 
-                          !selectedCapability ? 'bg-gray-200 cursor-not-allowed' :
-                          'bg-primary-100 hover:bg-primary-200'
-                        } transition-colors`}>
-                          <Upload size={20} className={`${!selectedCapability ? 'text-gray-400' : 'text-primary-600'}`} />
-                        </span>
-                      </label>
-                      {/* Upload Progress Bar */}
-                      {uploading && (
-                        <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden mr-2">
-                          <div className="h-full bg-primary-500 transition-all" style={{ width: `${uploadProgress}%` }} />
-                        </div>
-                      )}
-                      {/* Analyzing Indicator */}
-                      {analyzing && (
-                        <div className="flex items-center gap-1 text-primary-600 font-medium mr-2">
-                          <Loader2 className="animate-spin" size={18} />
-                          <span>Analyzing... {analyzeTimer}s</span>
-                        </div>
-                      )}
-                      <textarea
-                        ref={inputRef}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder={getPlaceholderText(selectedCapability)}
-                        className="w-full p-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none hide-scrollbar"
-                        rows={1}
-                        disabled={isLoading || uploading || analyzing || !selectedCapability}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSubmit(e);
-                          }
-                        }}
+              {/* Left Column - Patient Info (Only for non-engagement capabilities) */}
+              {selectedCapability !== 'engagement' && (
+                <div className="w-65 flex-shrink-0 overflow-y-auto hide-scrollbar">
+                  <div className="h-full flex flex-col">
+                    <h2 className="text-lg font-medium text-blue-900 mb-2">Patient Information</h2>
+                    <div className="flex-1">
+                      <PatientInfoForm
+                        patientInfo={patientInfo}
+                        onPatientInfoChange={setPatientInfo}
+                        onSubmitPatientInfo={handlePatientSubmit}
+                        isLoading={isLoading}
                       />
-                      <button
-                        type="submit"
-                        disabled={!input.trim() || isLoading || uploading || analyzing}
-                        className="absolute right-3 bottom-3 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
-                      >
-                        <ArrowUp size={20} />
-                      </button>
-                    </form>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Right Column - Chat or Patient Engagement */}
+              <div className={`flex flex-col overflow-hidden ${selectedCapability === 'engagement' ? 'flex-1' : 'flex-1'}`}>
+                {selectedCapability === 'engagement' ? (
+                  <PatientEngagement />
+                ) : (
+                  <div className="bg-white rounded-lg shadow-md flex flex-col h-full relative">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
+                      {messages.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 space-y-4">
+                          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center shadow-lg animate-professional-pulse">
+                            <Heart size={32} className="text-white animate-heartbeat" />
+                          </div>
+                          <div>
+                            <div className={`inline-block px-3 py-1 rounded-full text-sm font-medium mb-3 ${getCapabilityInfo(selectedCapability).bgColor} ${getCapabilityInfo(selectedCapability).color}`}>
+                              {getCapabilityInfo(selectedCapability).name}
+                            </div>
+                            <p className="text-lg font-medium">Welcome to Your AI Medical Assistant</p>
+                            <p className="max-w-md mx-auto mt-2">
+                              {selectedCapability === 'radiology' 
+                                ? 'Upload medical images or ask about radiological findings, imaging techniques, and interpretation.'
+                                : selectedCapability === 'lab'
+                                ? 'Upload lab reports or ask about laboratory results, test interpretations, and clinical correlation.'
+                                : 'Ask me questions about health conditions, symptoms, treatments, or general health advice.'
+                              }
+                            </p>
+                            <div className="mt-4 flex items-center justify-center">
+                              <button
+                                onClick={() => setShowCapabilitySelector(true)}
+                                className="flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:text-gray-800 hover:bg-blue-400 rounded-lg transition-colors"
+                              >
+                                <Settings size={16} />
+                                Change Assistant Mode
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2 text-amber-600">
+                            <AlertCircle size={16} />
+                            <span className="text-sm">For healthcare professionals only.</span>
+                          </div>
+                        </div>
+                      ) : (
+                        messages.map((message) => (
+                          <ChatMessage key={message.id} message={message} onPreviewClick={handlePreviewClick} onEdit={id => {
+                            setEditingMessageId(id);
+                            const msg = messages.find(m => m.id === id);
+                            if (msg) setInput(msg.content);
+                            if (inputRef.current) inputRef.current.focus();
+                          }} />
+                        ))
+                      )}
+                      {(isLoading || analyzing) && (
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full p-3 shadow-lg">
+                            <Stethoscope size={24} className="text-white" />
+                          </div>
+                          <div className="p-4 bg-white rounded-lg rounded-tl-none max-w-[85%] border border-gray-100 shadow-md">
+                            <LoadingDots />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+
+
+                  {/* Fixed Input - Only show for non-engagement capabilities */}
+                  {(selectedCapability as Capability) !== 'engagement' && (
+                    <div className="sticky bottom-0 bg-white p-1 border-t border-gray-200"
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                    >
+                      {/* Drag & Drop Overlay */}
+                      {isDragActive && selectedCapability && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 bg-opacity-90 rounded-lg border-2 border-blue-500 border-dashed pointer-events-none shadow-lg">
+                          <div className="text-blue-700 text-lg font-semibold flex flex-col items-center">
+                            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center shadow-lg mb-4 animate-professional-pulse">
+                              <Upload size={32} className="text-white" />
+                            </div>
+                            <p className="text-center">
+                              {selectedCapability === 'general' && "Drop your prescription/document (PDF) here"}
+                              {selectedCapability === 'lab' && "Drop your lab report (PDF) here"}
+                              {selectedCapability === 'radiology' && "Drop your medical image here"}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* File Type Selection Modal */}
+                      {showFileTypeModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+                          <div className="bg-white rounded-lg shadow-lg p-6 w-80 flex flex-col items-center">
+                            <h3 className="text-lg font-semibold mb-4">Select file type to upload</h3>
+                            {!pendingFileType && <>
+                              {/* General Medical - Show prescription upload */}
+                              {selectedCapability === 'general' && (
+                                <button
+                                  className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium"
+                                  onClick={() => handleFileTypeSelect('pdf')}
+                                >
+                                  <FileText size={20} /> Prescription/Document (PDF)
+                                </button>
+                              )}
+                              
+                              {/* Lab Mode - Show lab report upload */}
+                              {selectedCapability === 'lab' && (
+                                <button
+                                  className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-green-100 hover:bg-green-200 text-green-700 font-medium"
+                                  onClick={() => handleFileTypeSelect('pdf')}
+                                >
+                                  <FileText size={20} /> Lab Report (PDF)
+                                </button>
+                              )}
+                              
+                              {/* Radiology Mode - Show image upload */}
+                              {selectedCapability === 'radiology' && (
+                                <button
+                                  className="w-full flex items-center gap-2 px-4 py-2 mb-3 rounded bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium"
+                                  onClick={() => handleFileTypeSelect('image')}
+                                >
+                                  <ImageIcon size={20} /> Medical Image (JPG/PNG/DICOM)
+                                </button>
+                              )}
+                              
+                              {/* If no capability selected or unrecognized capability */}
+                              {!selectedCapability && (
+                                <div className="text-center text-gray-500 mb-4">
+                                  <p className="text-sm">Please select an assistant capability first</p>
+                                </div>
+                              )}
+                              
+                              <button
+                                className="mt-4 text-sm text-gray-500 hover:underline"
+                                onClick={() => setShowFileTypeModal(false)}
+                              >Cancel</button>
+                            </>}
+                            {pendingFileType && (
+                              <>
+                                <input
+                                  id="file-upload-input"
+                                  type="file"
+                                  accept={pendingFileType === 'pdf' ? '.pdf' : 'image/*'}
+                                  className="block w-full text-sm text-gray-700 mb-4"
+                                  onChange={handleFileUpload}
+                                  disabled={isLoading || uploading || analyzing}
+                                  autoFocus
+                                  multiple
+                                />
+                                <button
+                                  className="mt-2 text-sm text-gray-500 hover:underline"
+                                  onClick={() => setPendingFileType(null)}
+                                >Back</button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <form onSubmit={handleSubmit} className="relative flex items-center">
+                        {/* Upload Button */}
+                        <label 
+                          className="flex items-center cursor-pointer mr-2" 
+                          title={
+                            selectedCapability === 'general' ? "Upload Prescription/Document" :
+                            selectedCapability === 'radiology' ? "Upload Medical Image" :
+                            selectedCapability === 'lab' ? "Upload Lab Report" :
+                            "Select capability first"
+                          } 
+                          onClick={e => { 
+                            e.preventDefault(); 
+                            if (selectedCapability) {
+                              setShowFileTypeModal(true); 
+                            }
+                          }}
+                        >
+                          <span className={`p-2 rounded-full ${
+                            uploading ? 'bg-gray-300' : 
+                            !selectedCapability ? 'bg-gray-200 cursor-not-allowed' :
+                            'bg-primary-100 hover:bg-primary-200'
+                          } transition-colors`}>
+                            <Upload size={20} className={`${!selectedCapability ? 'text-gray-400' : 'text-primary-600'}`} />
+                          </span>
+                        </label>
+                        {/* Upload Progress Bar */}
+                        {uploading && (
+                          <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden mr-2">
+                            <div className="h-full bg-primary-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                          </div>
+                        )}
+
+                        <textarea
+                          ref={inputRef}
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          placeholder={getPlaceholderText(selectedCapability)}
+                          className="w-full p-3 pr-12 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none hide-scrollbar"
+                          rows={1}
+                          disabled={uploading || analyzing || !selectedCapability}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSubmit(e);
+                            }
+                          }}
+                        />
+                        {(isLoading || analyzing) ? (
+                          <button
+                            type="button"
+                            onClick={handleStopGeneration}
+                            className="absolute right-3 bottom-3 p-1.5 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
+                            title="Stop generation"
+                          >
+                            <Square size={20} />
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={!input.trim() || uploading || analyzing}
+                            className="absolute right-3 bottom-3 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
+                          >
+                            <ArrowUp size={20} />
+                          </button>
+                        )}
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             </div>
           </main>
 
@@ -1253,7 +1350,7 @@ const App: FC = () => {
           )}
 
           <footer className="py-3 px-4 text-center text-sm text-gray-500 border-t border-gray-200">
-            <p>© 2025 Healthcare Chatbot. Assistance For Professional Medical Advice.</p>
+            <p>© 2025 Healthcare Chatbot. {selectedCapability === 'engagement' ? 'Patient Engagement' : 'Assistance For Professional Medical Advice.'}</p>
           </footer>
         </div>
       } />
