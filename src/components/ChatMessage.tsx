@@ -100,8 +100,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick, onEd
       <div
         className={
           `p-4 rounded-2xl max-w-[85%] relative group shadow-lg transition-all duration-200 ` +
-          `${isUser ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-tr-md' : 'bg-white text-gray-800 rounded-tl-md border border-gray-100'} ` +
-          `${message.isError ? 'bg-red-50 text-red-800 border border-red-200' : ''}`
+          `${isUser ? 'bg-gradient-to-br from-blue-500 to-blue-300 text-white rounded-tr-md' : 'bg-white text-gray-800 rounded-tl-md border border-gray-100'} ` +
+          `${message.isError ? 'bg-red-50 text-red-800 border borde r-red-200' : ''}`
         }
       >
         <div className={`pb-1 mb-1 text-xs font-medium ${isUser ? 'text-primary-100' : 'text-gray-400'}`}
@@ -191,8 +191,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onPreviewClick, onEd
         )}
         {isUser && onEdit && (
           <button
-            className="absolute top-2 right-2 p-1 rounded hover:bg-blue-200 text-xs text-blue-700 bg-green-100 border border-blue-200"
+            className="absolute top-2 right-2 text-white-700 hover:text-green-400"
             title="Edit message"
+            aria-label="Edit message"
             onClick={() => onEdit(message.id)}
           >
             <Pencil size={16} />

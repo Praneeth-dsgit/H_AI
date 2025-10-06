@@ -36,6 +36,7 @@ class ConversationTurn:
 class ContextState:
     """Represents the current context state"""
     session_id: str
+    user_email: Optional[str] = None  # Track which user owns this session
     patient_info: Optional[Dict] = None
     current_capability: str = "general"
     conversation_history: List[ConversationTurn] = None
@@ -61,10 +62,13 @@ class ContextManager:
         self.max_file_tokens = 1000  # Max tokens for file context
         self.system_prompt_tokens = 1000  # Estimated system prompt tokens
         
-    def get_or_create_context(self, session_id: str) -> ContextState:
+    def get_or_create_context(self, session_id: str, user_email: Optional[str] = None) -> ContextState:
         """Get existing context or create new one for session"""
         if session_id not in self.contexts:
-            self.contexts[session_id] = ContextState(session_id=session_id)
+            self.contexts[session_id] = ContextState(session_id=session_id, user_email=user_email)
+        elif user_email and not self.contexts[session_id].user_email:
+            # Update existing context with user email if not already set
+            self.contexts[session_id].user_email = user_email
         return self.contexts[session_id]
     
     def update_patient_context(self, session_id: str, patient_info: Dict):
@@ -517,6 +521,58 @@ CURRENT QUERY (file-related): {current_query}
             'available_tokens': self.max_tokens - total_tokens,
             'usage_percentage': (total_tokens / self.max_tokens) * 100 if self.max_tokens > 0 else 0
         }
+    
+    def get_user_sessions(self, user_email: str) -> List[str]:
+        """Get all session IDs for a specific user"""
+        user_sessions = []
+        for session_id, context in self.contexts.items():
+            if context.user_email == user_email:
+                user_sessions.append(session_id)
+        return user_sessions
+    
+    def get_user_usage_summary(self, user_email: str) -> Dict[str, any]:
+        """Get comprehensive usage summary for a specific user"""
+        user_sessions = self.get_user_sessions(user_email)
+        
+        total_sessions = len(user_sessions)
+        total_turns = 0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        
+        for session_id in user_sessions:
+            context = self.get_or_create_context(session_id)
+            total_turns += len(context.conversation_history)
+            
+            for turn in context.conversation_history:
+                total_input_tokens += self._count_tokens(turn.user_message)
+                total_output_tokens += self._count_tokens(turn.ai_response)
+        
+        return {
+            'user_email': user_email,
+            'total_sessions': total_sessions,
+            'total_turns': total_turns,
+            'total_input_tokens': total_input_tokens,
+            'total_output_tokens': total_output_tokens,
+            'total_tokens': total_input_tokens + total_output_tokens
+        }
+    
+    def debug_contexts(self) -> Dict[str, any]:
+        """Debug method to show all contexts and their user associations"""
+        debug_info = {
+            'total_contexts': len(self.contexts),
+            'contexts': {}
+        }
+        
+        for session_id, context in self.contexts.items():
+            debug_info['contexts'][session_id] = {
+                'user_email': context.user_email,
+                'conversation_turns': len(context.conversation_history),
+                'capability': context.current_capability,
+                'has_patient_info': context.patient_info is not None,
+                'has_file_context': context.file_context is not None
+            }
+        
+        return debug_info
 
 # Global context manager instance
 context_manager = ContextManager() 

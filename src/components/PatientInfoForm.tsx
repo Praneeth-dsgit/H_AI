@@ -153,9 +153,9 @@ const PatientInfoForm: FC<PatientInfoFormProps> = ({ patientInfo, onPatientInfoC
                     field === 'bloodPressure'
                       ? 'e.g., 120/80'
                       : field === 'allergies'
-                      ? 'List any known allergies'
+                      ? 'Type any known allergies'
                       : field === 'medications'
-                      ? 'List current medications'
+                      ? 'Type current medications'
                       : ''
                   }
                   className="w-full p-1 border border-blue-300 rounded-md placeholder:text-sm focus:ring-primary-500 focus:border-primary-500"

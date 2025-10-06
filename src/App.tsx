@@ -6,6 +6,7 @@ import DisclaimerModal from './components/DisclaimerModal';
 import CapabilitySelector, { type Capability } from './components/CapabilitySelector';
 import PatientInfoForm from './components/PatientInfoForm';
 import PatientEngagement from './components/PatientEngagement';
+import VoiceInput from './components/VoiceInput';
 import { Message, PatientInfo } from './types';
 import {
   getInitialMessages,
@@ -98,6 +99,7 @@ const App: FC = () => {
     fileType: string;
     fileUrl: string;
   } | null>(null);
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [lastFileFindings, setLastFileFindings] = useState<string | null>(null);
   const [lastAiMessage, setLastAiMessage] = useState<string | null>(null);
   // Add state for editing
@@ -355,6 +357,7 @@ const App: FC = () => {
   };
 
   const handlePatientSubmit = async (info: PatientInfo) => {
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
     // Create a detailed message with patient information
     const patientDetails = [
       `Age: ${info.age} years`,
@@ -394,6 +397,7 @@ const App: FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage.content,
+          userEmail: userEmail, // Add user email for session tracking
           patientInfo: info,
           fileContext: resetContext ? null : lastUploadedFile,
           fileFindings: resetContext ? null : lastFileFindings,
@@ -510,6 +514,8 @@ const App: FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
+    
+    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
 
     if (editingMessageId) {
       // Find the index of the user message
@@ -541,6 +547,7 @@ const App: FC = () => {
             },
             body: JSON.stringify({
               message: editedUserMessage.content,
+              userEmail: userEmail,
               patientInfo: editedUserMessage.patientInfo,
               fileContext: resetContext ? null : lastUploadedFile,
               fileFindings: resetContext ? null : lastFileFindings,
@@ -647,6 +654,7 @@ const App: FC = () => {
         },
         body: JSON.stringify({
           message: userMessage.content,
+          userEmail: userEmail,
           patientInfo: patientInfo,
           fileContext: resetContext ? null : lastUploadedFile,
           fileFindings: resetContext ? null : lastFileFindings,
@@ -734,6 +742,12 @@ const App: FC = () => {
 
   const handleQuickPrompt = (prompt: string) => {
     setInput(prompt);
+    if (inputRef.current) inputRef.current.focus();
+  };
+
+  const handleVoiceTextGenerated = (text: string) => {
+    setInput(text);
+    setIsVoiceRecording(false);
     if (inputRef.current) inputRef.current.focus();
   };
 
@@ -1066,12 +1080,12 @@ const App: FC = () => {
           {showCapabilitySelector && (
             <CapabilitySelector onSelectCapability={handleCapabilitySelect} />
           )}
-          <main className="flex-1 flex px-4 py-4 overflow-hidden max-w-7xl w-full mx-auto">
+          <main className="flex-1 flex px-3 py-3 overflow-hidden max-w-7xl w-full mx-auto">
             <div className="flex gap-2 flex-1 min-h-0">
               {/* Left Column - Patient Info (Only for non-engagement capabilities) */}
               {selectedCapability !== 'engagement' && (
                 <div className="w-65 flex-shrink-0 overflow-y-auto hide-scrollbar">
-                  <div className="h-full flex flex-col">
+                  <div className="flex flex-col bg-white rounded-lg shadow-md p-4">
                     <h2 className="text-lg font-medium text-blue-900 mb-2">Patient Information</h2>
                     <div className="flex-1">
                       <PatientInfoForm
@@ -1148,10 +1162,9 @@ const App: FC = () => {
                       <div ref={messagesEndRef} />
                     </div>
 
-
                   {/* Fixed Input - Only show for non-engagement capabilities */}
                   {(selectedCapability as Capability) !== 'engagement' && (
-                    <div className="sticky bottom-0 bg-white p-1 border-t border-gray-200"
+                    <div className="sticky bottom-0 bg-white p-0.5 border-t border-gray-200 "
                       onDragOver={handleDragOver}
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
@@ -1265,6 +1278,14 @@ const App: FC = () => {
                             <Upload size={20} className={`${!selectedCapability ? 'text-gray-400' : 'text-primary-600'}`} />
                           </span>
                         </label>
+
+                        {/* Voice Input Button */}
+                        <div className="mr-2">
+                          <VoiceInput
+                            onTextGenerated={handleVoiceTextGenerated}
+                            disabled={uploading || analyzing || !selectedCapability || isVoiceRecording}
+                          />
+                        </div>
                         
 
                         {/* Upload Progress Bar */}
@@ -1293,7 +1314,7 @@ const App: FC = () => {
                           <button
                             type="button"
                             onClick={handleStopGeneration}
-                            className="absolute right-3 bottom-3 p-1.5 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
                             title="Stop generation"
                           >
                             <Square size={20} />
@@ -1302,7 +1323,7 @@ const App: FC = () => {
                           <button
                             type="submit"
                             disabled={!input.trim() || uploading || analyzing}
-                            className="absolute right-3 bottom-3 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full bg-primary-500 text-white disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors hover:bg-primary-600"
                           >
                             <ArrowUp size={20} />
                           </button>

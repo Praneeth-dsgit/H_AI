@@ -19,10 +19,11 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 import pymysql
+from datetime import datetime
 
 # Import Pydantic validation utilities
-from validation_utils import validate_request, validate_response, handle_validation_errors, validate_patient_info, validate_file_upload_data, create_error_response, create_success_response
-from models import ChatRequest, PatientInfo, UserSignup, UserLogin, OTPVerification, AppointmentReminder, NotificationRequest, HealthCheck, CapabilityType
+from validation_utils import validate_request, validate_response, handle_validation_errors, validate_file_upload_data
+from models import ChatRequest, PatientInfo, UserSignup, UserLogin, OTPVerification, HealthCheck
 from context_manager import context_manager
 
 # Load environment variables
@@ -76,7 +77,7 @@ with open('med_cond_knw_base.json', encoding='utf-8') as f:
 def detect_query_type(query):
     """
     Classifies the query into specific medical contexts using semantic analysis.
-    Returns: 'diagnosis', 'treatment', 'lab', 'chronic', 'emergency', 'general'
+    Returns: 'diagnosis', 'treatment', 'medication', 'lab', 'chronic', 'emergency', 'general'
     """
     try:
         # Use GPT for semantic classification
@@ -97,8 +98,8 @@ Respond with only the category name (one word)."""
         response = openai.ChatCompletion.create(
             model="gpt-4.1",
             messages=[{"role": "user", "content": classification_prompt}],
-            max_tokens=20,
-            temperature=0.3
+            max_tokens=50,
+            temperature=0.5
         )
         
         result = response.choices[0].message['content'].strip().lower()
@@ -162,8 +163,8 @@ Respond with only "relevant" or "not_relevant"."""
         response = openai.ChatCompletion.create(
             model="gpt-4.1",
             messages=[{"role": "user", "content": relevance_prompt}],
-            max_tokens=10,
-            temperature=0.1
+            max_tokens=50,
+            temperature=0.5
         )
         
         result = response.choices[0].message['content'].strip().lower()
@@ -336,133 +337,69 @@ def generate_capability_prompt(query, capability, patient_info=None, file_contex
     if capability == 'general':
         # Detect query type for better response structure
         query_type = detect_query_type(query)
-        
-        prompt = f"""You are a STRICTLY GENERAL MEDICAL healthcare assistant designed to support medical professionals.  
-Respond ONLY to general medical queries involving symptoms, clinical diagnoses, treatment recommendations, medications, and overall health guidance.  
-**CRITICAL INSTRUCTIONS:**  
-- REFUSE to answer any radiology or imaging-related questions (interpretations, findings, recommendations).  
-  - If asked, respond with: "This question requires specialized expertise. Please switch to Radiology mode for accurate interpretation."  
-- REFUSE to answer any laboratory or lab result interpretation questions.  
-  - If asked, respond with: "This question requires specialized expertise. Please switch to Lab mode for accurate interpretation."  
-- If a question is ambiguous or includes labs/imaging, clarify and redirect as appropriate before proceeding.  
-- Remain within the scope of general medical clinical decision-making ONLY.
+        prompt = f"""
+You are operating in **{capability} mode**.  
+You are assisting a healthcare professional.  
 
-IF patient_info is provided, use it to personalize the response.
-**PATIENT-SPECIFIC ANALYSIS:**
-Comprehensively incorporate patient-specific factors:  
-- Age, gender, BMI, and medical history to personalize recommendations  
-- Adjust diseases considered and treatments recommended based on patient demographics (e.g., pediatric, elderly, gender-specific conditions)  
-- Factor in risk of or actual drug-drug interactions and contraindications according to medication history and known allergies  
-- Adjust diagnostic reasoning and risk stratification for pre-existing conditions and risk factors  
-- Keep all recommendations tailored to the patient’s profile.
+🚫 DO NOT:
+- Interpret imaging (unless Radiology mode).
+- Interpret lab values (unless Lab mode).
+- Answer casual, speculative, or non-medical questions. Redirect instead.
 
-Patient Context:
+👤 Patient Context (if provided):
 {patient_context}
 
-General Medical Query:
-{query}
+📌 Query Type: {query_type}  
+📌 Query: {query}
 
-**RESPONSE FRAMEWORK:**  
+---
 
-**FORMATTING REQUIREMENTS:**
-If needed, use the following formatting at the beginning of each section requirements to make the response more readable and organized:
-• Use **emojis** to make the response more engaging and professional.
-• Use **bullet points** to make the response more readable and organized
-• Use **numbered lists** to make the response more readable and organized  
-• Use **tables** to make the response more readable and organized
-• Use **bold and italic text** to make the response more readable and organized
-• Use **line breaks** to make the response more readable and organized.
+🎯 RESPONSE LOGIC (BASED ON QUERY TYPE):
 
-f"Structure your response based on the query type: {query_type}"
+**DIAGNOSIS QUERIES**:
+- Condition name
+- Key symptoms + red flags
+- Differential diagnosis
+- Diagnostic workup
+- Clinical notes (patient-specific risks, when to refer)
 
-**DIAGNOSIS** (for diagnosis-related queries):
-- Possible Diagnoses: List 2-3 most likely conditions
-- Differential Diagnoses: Include 3-5 alternative possibilities
-- Supporting Symptoms/Signs: Key clinical indicators
-- Red Flags: Warning signs requiring immediate attention
-- Recommended Next Steps: Specific diagnostic workup
-- Recommend which department/specialist to consult.
+**TREATMENT QUERIES**:
+- First-line lifestyle/conservative options
+- Pharmacotherapy (**names, dosages, frequencies, durations, monitoring**)
+- Surgical/procedural options
+- Clinical notes (contraindications, follow-up needs)
 
-**TREATMENT** (for treatment-related queries):
-- First-Line Treatment: Evidence-based primary approach
-- Alternative Options: Second-line or adjunctive therapies
-- Medications: Specific dosing, duration, monitoring
-- Lifestyle Modifications: Diet, exercise, behavioral changes
-- Monitoring & Follow-up: Assessment schedule and parameters
-- Also recommend which department/specialist to consult.
+**MEDICATION QUERIES**:
+- Drug class & indication
+- Dosing & administration
+- Side effects & monitoring
+- Contraindications & interactions
+- Clinical notes (personalized)
 
-**LAB** (for laboratory-related queries):
-- Test Purpose: Clinical indication and utility
-- Normal Ranges: Age/gender-specific reference values
-- Interpretation: Clinical significance of results
-- Follow-up Testing: Additional diagnostic workup if needed
-- Patient Counseling: Education about results
+**CHRONIC CONDITION QUERIES**:
+- Long-term lifestyle changes
+- Medication strategies with monitoring
+- Specialist referral/coordination
+- Clinical notes (progression prevention)
 
-**CHRONIC** (for chronic disease management):
-- Condition Overview: Disease progression and prognosis
-- Long-Term Management: Ongoing care strategies
-- Lifestyle Modifications: Sustainable behavioral changes
-- Medication Management: Long-term pharmacotherapy
-- Follow-Up Schedule: Regular monitoring intervals
-- Recommend which department/specialist to consult.
+**EMERGENCY QUERIES**:
+- Immediate actions (ABCDE, first aid)
+- Stabilization steps
+- Definitive care
+- Clinical notes (red flags, prevention)
 
-**EMERGENCY** (for urgent/acute situations):
-- Immediate Assessment: ABCDE approach
-- Critical Actions: Time-sensitive interventions
-- Red Flag Symptoms: Signs requiring emergency care
-- Stabilization Steps: First aid and supportive care
-- Disposition: When to call EMS or seek immediate care
-- Recommend which department/specialist to consult.
+**GENERAL QUERIES**:
+- Key points / definitions
+- Clinical relevance & practical applications
+- Additional resources
+- Clinical notes (patient education, follow-up)
 
-**GENERAL** (for general health questions):
-- Key Concepts: Essential information summary
-- Practical Guidance: Actionable recommendations
-- Related Topics: Additional areas to consider
-- Patient Education: Important points for counseling
-- Recommend which department/specialist to consult.
-   
-**CLINICAL REASONING FRAMEWORK:**
+---
 
-1. **Patient-Specific Analysis:**
-   - Age/Gender Considerations: How demographics affect diagnosis and treatment
-   - Risk Factor Assessment: BMI, medical history, medications, allergies
-   - Comorbidity Impact: How existing conditions modify approach
-   - Medication Interactions: Drug-drug and drug-disease interactions
-
-2. **Differential Diagnosis:**
-   - Primary Considerations: Most likely diagnoses based on presentation
-   - Alternative Diagnoses: Important differentials to rule out
-   - Red Flags: Signs requiring immediate attention or referral
-   - Risk Stratification: Low/medium/high risk assessment
-
-3. **Evidence-Based Recommendations:**
-   - First-Line Approach: Standard of care recommendations
-   - Alternative Options: When first-line isn't appropriate
-   - Monitoring Parameters: What to watch and when
-   - Follow-up Plan: Timeline for reassessment
-
-4. **Patient Education Points:**
-   - Key Messages: Essential information for patient counseling
-   - Warning Signs: When to seek immediate care
-   - Lifestyle Modifications: Behavioral changes and self-care
-        - Medication Instructions: Dosing, timing, side effects
-
-**STRICT RULES & SAFETY PROTOCOLS:** 
-- Limit response to a MAXIMUM of 200 words for comprehensive coverage
-- Pause between each step of the response
-- If a query REQUIRES radiology or laboratory interpretation, do NOT answer it. Instead, state:  
-  "This question requires specialized expertise. Please switch to [Radiology/Lab] mode for accurate interpretation."  
-- For emergency situations, ALWAYS emphasize when immediate medical attention is required
-- Include appropriate disclaimers for off-label medication use or experimental treatments
-- Audience: Healthcare professionals ONLY
-- Always consider patient safety first - when in doubt, recommend consultation with specialist
-
-**FINAL INSTRUCTIONS:**
-- Use clear, professional medical language
-- Prioritize patient safety and evidence-based practice
-- Include appropriate disclaimers when necessary
-- Keep responses focused, actionable, and clinically relevant
-- Always consider the patient's specific context and risk factors
+🧠 REQUIREMENTS:
+- Always tailor **Clinical Notes** to patient context.
+- Always highlight **red flags** and when to escalate to specialist/EMS.
+- Keep answer concise, structured, and actionable for a healthcare professional.
 """
         
     elif capability == 'radiology':
@@ -479,42 +416,44 @@ CRITICAL INSTRUCTIONS:
 Radiology/Imaging Query:
 {query}
 
-**RESPONSE FRAMEWORK:**
+**STRUCTURED OUTPUT FORMAT** (MANDATORY):
 
-**FORMATTING REQUIREMENTS:**
-If needed, use the following formatting at the beginning of each section requirements to make the response more readable and organized:
-• Use **emojis** to make the response more engaging and professional.
-• Use **bullet points** to make the response more readable and organized
-• Use **numbered lists** to make the response more readable and organized  
-• Use **tables** to make the response more readable and organized
-• Use **bold and italic text** to make the response more readable and organized
-• Use **line breaks** to make the response more readable and organized.
+Use this exact formatting structure with emojis and clear sections:
 
-MANDATORY PATIENT-CONTEXTUALIZED IMAGING INTERPRETATION:
+- [Imaging Study/Modality Analysis]
+- Technique & Quality:
+- [Imaging parameters, protocols used]
+- [Image quality assessment, patient factors]
+
+- Radiological Findings:
+- [Systematic description of normal anatomy]
+- [Abnormal findings with precise measurements]
+- [Density/signal characteristics]
+
+- Differential Diagnosis:
+- [Imaging-based differentials]
+- [Standard classifications (BI-RADS, Fleischner, etc.)]
+
+- Clinical Notes:
+- [Patient-specific considerations]
+- [Age/gender-appropriate normal variants]
+- [Additional imaging recommendations]
+
+**MANDATORY PATIENT-CONTEXTUALIZED INTERPRETATION:**
 - Integrate patient age, gender, and medical history into radiological analysis
 - Consider age-specific normal variants and pathological changes
 - Factor in gender-specific anatomical differences and disease patterns
 - Use BMI information for image quality assessment and technique optimization
 - Correlate imaging findings with known medical history and medications
 
-MANDATORY Structured Reporting Format:
-1. TECHNIQUE/QUALITY: Image acquisition details, quality assessment, patient factors affecting imaging
-2. PATIENT CONTEXT: Age, gender, BMI considerations for interpretation
-3. FINDINGS: Systematic description with age/gender-appropriate normal variants
-4. CLINICAL CORRELATION: Integration with patient medical history and demographics
-5. IMPRESSION: Age and gender-contextualized radiological interpretation
-6. DIFFERENTIAL: Imaging-based differential adjusted for patient demographics
-7. RECOMMENDATIONS: Patient-specific additional imaging or clinical correlation
-8. CRITICAL FINDINGS: Urgent findings with age-appropriate severity assessment
-
-Patient-Specific Considerations:
+**PATIENT-SPECIFIC CONSIDERATIONS:**
 - PEDIATRIC (age <18): Use pediatric normal variants, consider radiation dose optimization
 - ELDERLY (age >65): Expect age-related degenerative changes, increased fracture risk
 - FEMALE REPRODUCTIVE AGE: Consider pregnancy, hormonal influences on imaging
 - OBESITY (BMI >30): Adjust for image quality limitations, increased radiation requirements
 - MEDICATION EFFECTS: Consider drug-related imaging changes from patient's current medications
 
-Radiological Standards:
+**RADIOLOGICAL STANDARDS:**
 - Use precise radiological terminology contextualized for patient age/gender
 - Reference anatomical landmarks with age-appropriate measurements
 - Describe density, enhancement patterns with patient-specific considerations
@@ -523,7 +462,6 @@ Radiological Standards:
 
 **STRICT RULES & SAFETY PROTOCOLS:** 
 - Limit response to a MAXIMUM of 200 words for comprehensive coverage
-- Pause between each step of the response
 - Include appropriate disclaimers for off-label medication use or experimental treatments
 - Audience: Healthcare professionals ONLY
 - Always consider patient safety first - when in doubt, recommend consultation with specialist
@@ -546,35 +484,36 @@ CRITICAL INSTRUCTIONS:
 Laboratory Medicine Query:
 {query}
 
-**FORMATTING REQUIREMENTS:**
-If needed, use the following formatting at the beginning of each section requirements to make the response more readable and organized:
-• Use **emojis** to make the response more engaging and professional.
-• Use **bullet points** to make the response more readable and organized
-• Use **numbered lists** to make the response more readable and organized  
-• Use **tables** to make the response more readable and organized
-• Use **bold and italic text** to make the response more readable and organized
-• Use **line breaks** to make the response more readable and organized.
+**STRUCTURED OUTPUT FORMAT** (MANDATORY):
 
-**RESPONSE FRAMEWORK:**
-MANDATORY PATIENT-CONTEXTUALIZED LABORATORY INTERPRETATION:
+Use this exact formatting structure with emojis and clear sections:
+
+- [Laboratory Test/Parameter Analysis]
+- Reference Ranges & Demographics:
+- [Age/gender-specific normal values]
+- [Population-adjusted reference ranges]
+
+- Result Interpretation:
+- [Clinical significance of values]
+- [Patient-specific considerations]
+
+- Differential Causes:
+- [Etiologies based on results]
+- [Risk stratification]
+
+- Clinical Notes:
+- [Patient-specific considerations]
+- [Medication interactions]
+- [Follow-up testing recommendations]
+
+**MANDATORY PATIENT-CONTEXTUALIZED LABORATORY INTERPRETATION:**
 - Apply age and gender-specific reference ranges for all laboratory values
 - Consider patient weight for creatinine clearance and drug dosing calculations
 - Factor in current medications for therapeutic drug monitoring and interference
 - Integrate medical history for disease-specific laboratory patterns
 - Account for BMI in metabolic parameter interpretation (glucose, lipids, liver function)
 
-MANDATORY Laboratory Analysis Format:
-1. PATIENT-SPECIFIC REFERENCE RANGES: Age, gender, and population-adjusted normal values
-2. DEMOGRAPHIC CONSIDERATIONS: How age, gender, BMI affect result interpretation
-3. MEDICATION ANALYSIS: Current drugs affecting test results or requiring monitoring
-4. RESULT INTERPRETATION: Clinical meaning adjusted for patient demographics
-5. DIFFERENTIAL CAUSES: Etiologies prioritized by age, gender, and medical history
-6. RISK STRATIFICATION: Patient-specific risk assessment based on demographics
-7. FOLLOW-UP TESTING: Additional tests tailored to patient profile
-8. CRITICAL VALUES: Age-adjusted critical thresholds and clinical urgency
-9. CLINICAL CORRELATION: Integration with patient's complete clinical picture
-
-Patient-Specific Laboratory Considerations:
+**PATIENT-SPECIFIC LABORATORY CONSIDERATIONS:**
 - PEDIATRIC (age <18): Use pediatric reference ranges, consider growth and development
 - FEMALE REPRODUCTIVE AGE (15-50): Consider menstrual cycle, pregnancy effects
 - ELDERLY (age >65): Adjust for age-related organ function decline
@@ -582,7 +521,7 @@ Patient-Specific Laboratory Considerations:
 - MEDICATION INTERACTIONS: Screen current medications for lab test interference
 - KIDNEY FUNCTION: Adjust interpretation based on age, gender, weight for eGFR
 
-Laboratory Standards:
+**LABORATORY STANDARDS:**
 - Reference CLSI guidelines with demographic-specific modifications
 - Include pre-analytical considerations specific to patient characteristics
 - Address analytical interferences from patient medications
@@ -592,10 +531,10 @@ Laboratory Standards:
 
 **STRICT RULES & SAFETY PROTOCOLS:** 
 - Limit response to a MAXIMUM of 200 words for comprehensive coverage
-- Pause between each step of the response
 - Include appropriate disclaimers for off-label medication use or experimental treatments
 - Audience: Healthcare professionals ONLY
 - Always consider patient safety first - when in doubt, recommend consultation with specialist
+
 STRICT RULE: If this query is NOT about laboratory testing or result interpretation, respond with: "I specialize in laboratory medicine only. Please switch to General Medical or Radiology mode for this question."
 
 Expert Level: Clinical pathologist with patient-contextualized interpretation expertise."""
@@ -606,14 +545,22 @@ Expert Level: Clinical pathologist with patient-contextualized interpretation ex
 
 Query: {query}
 
-**FORMATTING REQUIREMENTS:**
-If needed, use the following formatting at the beginning of each section requirements to make the response more readable and organized:
-• Use **emojis** to make the response more engaging and professional.
-• Use **bullet points** to make the response more readable and organized
-• Use **numbered lists** to make the response more readable and organized  
-• Use **tables** to make the response more readable and organized
-• Use **bold and italic text** to make the response more readable and organized
-• Use **line breaks** to make the response more readable and organized.
+**STRUCTURED OUTPUT FORMAT** (MANDATORY):
+
+Use this exact formatting structure with emojis and clear sections:
+
+- [General Healthcare Guidance]
+- Available Capabilities:
+- [List of specialized modes available]
+- [What each mode can help with]
+
+- Mode Selection:
+- [How to choose the right mode]
+- [Benefits of specialized assistance]
+
+- Clinical Notes:
+- [When to use each mode]
+- [Safety considerations]
 
 **RESPONSE FRAMEWORK:**
 I can only provide general guidance. For specialized assistance, please select an appropriate capability mode:
@@ -625,7 +572,6 @@ Please switch to the appropriate mode for detailed, expert-level assistance.
 
 **STRICT RULES & SAFETY PROTOCOLS:** 
 - Limit response to a MAXIMUM of 200 words for comprehensive coverage
-- Pause between each step of the response
 - Include appropriate disclaimers for off-label medication use or experimental treatments
 - Audience: Healthcare professionals ONLY
 - Always consider patient safety first - when in doubt, recommend consultation with specialist
@@ -643,6 +589,7 @@ def chat_stream():
         chat_request = request.validated_data
         
         user_message = chat_request.message
+        user_email = chat_request.user_email
         patient_info = chat_request.patient_info
         file_context = chat_request.file_context
         file_findings = chat_request.file_findings
@@ -651,12 +598,16 @@ def chat_stream():
         capability = chat_request.capability
         session_id = chat_request.session_id or "default_session"
         
-        logger.info(f"Processing message: '{user_message}' with capability: {capability}, session: {session_id}")
+        logger.info(f"Processing message: '{user_message}' with capability: {capability}, session: {session_id}, user: {user_email}")
 
-        # Update context manager with current state
+        # Update context manager with current state and user association
         if patient_info:
             context_manager.update_patient_context(session_id, patient_info)
         context_manager.update_capability_context(session_id, capability)
+        
+        # Associate session with user if email is provided
+        if user_email:
+            context_manager.get_or_create_context(session_id, user_email)
         
         # Handle context reset
         if reset_message:
@@ -666,23 +617,69 @@ def chat_stream():
 
         def generate():
             try:
-                # Generate context-aware prompt
-                prompt, context_metadata = context_manager.generate_contextual_prompt(
-                    session_id, user_message, capability
+                # Generate capability-specific prompt with structured formatting
+                prompt = generate_capability_prompt(
+                    user_message, capability, patient_info, file_context, file_findings, previous_ai_message, reset_message
                 )
                 
-                logger.info(f"Generated context-aware prompt for {capability} capability")
-                logger.info(f"Context type: {context_metadata.get('context_type', 'unknown')}")
+                logger.info(f"Generated capability-specific prompt for {capability} capability")
                 
-                # Use OpenAI streaming
+                # Use OpenAI streaming with structured formatting enforcement
                 response = openai.ChatCompletion.create(
-                    model="gpt-4",
+                    model="gpt-4.1",
                     messages=[
-                        {"role": "system", "content": "You are a helpful medical assistant."},
+                        {"role": "system", "content": f"""
+You are a specialized medical AI assistant for {capability} queries.  
+Your audience is licensed healthcare professionals.  
+Your role is to provide **concise, structured, safe, and clinically useful guidance**.  
+
+⚠️ SAFETY RULES:
+- Stay within the scope of {capability}.
+- Do NOT interpret labs or imaging unless explicitly in that mode; redirect instead.
+- If the query is unclear or unsafe, ask for clarification first.
+- Never provide layperson advice; assume responses are for clinicians.
+
+📐 CRITICAL FORMATTING REQUIREMENTS:
+- Always use **indented hierarchical structure**:
+  - 2 spaces for subsections
+  - 4 spaces for nested details
+- Use **•** for main bullets
+- Use **-** for sub-bullets
+- Use emojis for subsection headers
+- Do NOT bold condition/topic titles
+- Bold ONLY:
+  - Medication names
+  - Dosages
+  - The label "Clinical Notes" and "Disclaimer"
+- If a section is not applicable, include the heading with "None"
+
+📦 MANDATORY OUTPUT TEMPLATE:
+[Condition/Topic Name]
+  [Emoji] [Subsection Title]:
+    • [Main bullet point]
+    • [Main bullet point]
+      - [Nested detail if needed]
+  [Emoji] [Next Subsection]:
+    • [Bullet points...]
+  🩺 Surgical/Procedural Options:
+    • [List if any, else "None"]
+  Clinical Notes:
+    • [Patient-specific considerations]
+    • [Monitoring/follow-up needs]
+    • [Referral recommendations]
+
+⚠️ Disclaimer:
+  • This information is for healthcare professionals only.
+  • It does not replace independent clinical judgment or specialist consultation.
+
+📝 LENGTH CONTROL:
+- Keep responses ≤150 tokens.
+- If the content would be longer, summarize key actions and safety notes first.
+"""},
                         {"role": "user", "content": prompt}
                     ],
                     stream=True,
-                    max_tokens=512,
+                    max_tokens=1024,
                     temperature=0.7
                 )
                 
@@ -701,7 +698,7 @@ def chat_stream():
                 # Store conversation turn in context manager
                 ai_response = ''.join(ai_response_parts)
                 context_manager.add_conversation_turn(
-                    session_id, user_message, ai_response, capability, context_metadata
+                    session_id, user_message, ai_response, capability, {"context_type": "capability_specific"}
                 )
                             
                 logger.info("\n=== Stream completed ===")
@@ -874,28 +871,6 @@ Solitary pulmonary nodule, right upper lobe, 2.1 cm, spiculated margins. Fleisch
 Suggest PET-CT for further evaluation or tissue sampling as per current radiological guidelines.  
 Clinical correlation and management should be discussed with the ordering physician.
 
-Example 2 (for a mammogram):
-
-1. TECHNIQUE:  
-Digital mammography, craniocaudal and mediolateral oblique projections.
-
-2. COMPARISON:  
-Prior study from 2 years ago reviewed.
-
-3. FINDINGS:  
-- Well-visualized breast tissue and pectoralis muscles.  
-- No suspicious calcifications.  
-- 1.2 cm irregular density in upper outer quadrant, new compared to previous. No associated skin thickening.
-
-4. IMPRESSION:  
-New irregular mass, upper outer quadrant, likely suspicious for malignancy (BI-RADS 4).
-
-5. RECOMMENDATIONS:  
-Recommend targeted ultrasound and possible biopsy of the upper outer quadrant mass.  
-Clinical correlation and management should be discussed with the ordering physician.
-
-(For actual use, make reports longer and more detailed as appropriate for the image and findings.)
-
 IMPORTANT INSTRUCTIONS AND OBJECTIVE REMINDER:  
 Generate ONLY structured radiology reports as described, using strict radiological terminology, standard units, 
 and classification systems where applicable. Do NOT provide general medical advice—always include the required refusal statement. Output should exactly follow the header and bullet/paragraph structure above.
@@ -959,17 +934,54 @@ and classification systems where applicable. Do NOT provide general medical advi
         if padding:
             image_base64 += '=' * (4 - padding)
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": [
-                    {"type": "image_url", "image_url": {"url": image_url}}
-                ]}
-            ],
-            max_tokens=512
-        )
-        return response.choices[0].message['content']
+        # Create structured system message for image interpretation
+        system_message = f"""You are a SPECIALIZED {capability.upper()} AI assistant. 
+
+CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THIS EXACT STRUCTURE:
+
+🔹 [Main Topic/Analysis]
+💊 [Subsection with relevant emoji]:
+- [Detailed bullet points with specific information]
+- [Measurements, values, findings where applicable]
+
+💊 [Another subsection]:
+- [More detailed information]
+- [Clinical considerations]
+
+🔪 [Procedural/Surgical options if applicable]:
+- [Specific procedures with indications]
+
+📌 Clinical Notes:
+- [Patient-specific considerations]
+- [Risk factors, monitoring needs]
+- [Referral recommendations]
+
+ALWAYS use these exact emojis and structure. NEVER deviate from this format.
+
+{prompt}"""
+
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    ]}
+                ],
+                max_tokens=512,
+                temperature=0.7
+            )
+            return response.choices[0].message['content']
+        except openai.error.RateLimitError as e:
+            logger.error(f"OpenAI Rate Limit Error: {e}")
+            raise Exception("OpenAI API quota exceeded. Please check your billing and try again later.")
+        except openai.error.InvalidRequestError as e:
+            logger.error(f"OpenAI Invalid Request Error: {e}")
+            raise Exception("Invalid request to OpenAI API. Please check your image format.")
+        except openai.error.APIError as e:
+            logger.error(f"OpenAI API Error: {e}")
+            raise Exception("OpenAI API error. Please try again later.")
         
     except UnicodeDecodeError as e:
         logger.error(f"Base64 decode error: {e}")
@@ -1056,10 +1068,37 @@ def interpret_text_with_openai(text, capability="general"):
     else:
         return "ERROR: Please select an appropriate assistance mode for document analysis."
     
+    # Create structured system message for text interpretation
+    system_message = f"""You are a SPECIALIZED {capability.upper()} AI assistant. 
+
+CRITICAL FORMATTING REQUIREMENTS - YOU MUST FOLLOW THIS EXACT STRUCTURE:
+
+🔹 [Main Topic/Analysis]
+💊 [Subsection with relevant emoji]:
+- [Detailed bullet points with specific information]
+- [Measurements, values, findings where applicable]
+
+💊 [Another subsection]:
+- [More detailed information]
+- [Clinical considerations]
+
+🔪 [Procedural/Surgical options if applicable]:
+- [Specific procedures with indications]
+
+📌 Clinical Notes:
+- [Patient-specific considerations]
+- [Risk factors, monitoring needs]
+- [Referral recommendations]
+
+ALWAYS use these exact emojis and structure. NEVER deviate from this format.
+
+{prompt}"""
+
     response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "system", "content": prompt}],
-        max_tokens=512
+        model="gpt-4.1",
+        messages=[{"role": "system", "content": system_message}],
+        max_tokens=512,
+        temperature=0.7
     )
     return response.choices[0].message['content']
 
@@ -1160,7 +1199,13 @@ def upload_file():
                 result = interpret_image_with_openai(img_bytes, image_format=ext, capability=capability)
             except Exception as img_error:
                 logger.error(f"Image processing error: {img_error}")
-                return jsonify({'result': f'Error during image interpretation: {str(img_error)}'})
+                # Check for specific OpenAI API errors
+                if "quota" in str(img_error).lower() or "rate limit" in str(img_error).lower():
+                    return jsonify({'result': 'OpenAI API quota exceeded. Please check your billing and try again later.'})
+                elif "invalid" in str(img_error).lower() and "base64" in str(img_error).lower():
+                    return jsonify({'result': 'Invalid image format. Please try uploading a different image.'})
+                else:
+                    return jsonify({'result': f'Error during image interpretation: {str(img_error)}'})
         elif filename.lower().endswith('.pdf'):
             # Extract text from PDF
             doc = fitz.open(file_path)
@@ -1487,6 +1532,69 @@ def send_bulk_appointment_reminders():
         logger.error(f"Bulk appointment reminders error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
+@app.route('/api/speech-to-text', methods=['POST'])
+def speech_to_text():
+    """
+    Process speech-to-text conversion using OpenAI Whisper API
+    """
+    try:
+        # Check if audio file is provided
+        if 'audio' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No audio file provided'
+            }), 400
+        
+        audio_file = request.files['audio']
+        
+        if audio_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No audio file selected'
+            }), 400
+        
+        # Validate file type
+        if not audio_file.content_type.startswith('audio/'):
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type. Please provide an audio file.'
+            }), 400
+        
+        # Save audio file temporarily
+        temp_audio_path = os.path.join(UPLOAD_FOLDER, f"temp_audio_{int(time.time())}.wav")
+        audio_file.save(temp_audio_path)
+        
+        try:
+            # Use OpenAI Whisper API for transcription
+            with open(temp_audio_path, 'rb') as audio:
+                transcript = openai.Audio.transcribe(
+                    model="whisper-1",
+                    file=audio,
+                    response_format="text"
+                )
+            
+            # Clean up temporary file
+            os.remove(temp_audio_path)
+            
+            return jsonify({
+                'success': True,
+                'transcript': transcript.strip(),
+                'confidence': 0.95  # Whisper doesn't provide confidence scores
+            })
+            
+        except Exception as e:
+            # Clean up temporary file on error
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+            raise e
+        
+    except Exception as e:
+        logger.error(f"Speech-to-text error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to process speech-to-text conversion'
+        }), 500
+
 @app.route('/api/faqs/generate', methods=['POST'])
 def generate_dynamic_faqs():
     """
@@ -1610,7 +1718,7 @@ Generate 10 FAQ questions that:
 Return only the questions, one per line, without numbering or additional text."""
 
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-4.1",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
             temperature=0.7
@@ -1635,6 +1743,177 @@ Return only the questions, one per line, without numbering or additional text.""
         logger.error(f"Error generating FAQs from history: {str(e)}")
         # Return default FAQs as fallback
         return get_default_faqs(capability)
+
+@app.route('/api/usage/statistics', methods=['GET'])
+def get_usage_statistics():
+    """
+    Get comprehensive usage statistics including requests, tokens, costs, and capability breakdown
+    """
+    try:
+        # Get user email from request headers or query params
+        user_email = request.args.get('user_email') or request.headers.get('X-User-Email')
+        
+        if not user_email:
+            return jsonify({
+                'success': False,
+                'error': 'User email is required'
+            }), 400
+        
+        # Get all sessions for the user using the new user-session mapping
+        user_sessions = context_manager.get_user_sessions(user_email)
+        
+        # Debug logging
+        logger.info(f"User email: {user_email}")
+        logger.info(f"Total contexts in manager: {len(context_manager.contexts)}")
+        logger.info(f"User sessions found: {len(user_sessions)}")
+        
+        # If no user sessions found, try to associate existing sessions with the user
+        if not user_sessions and context_manager.contexts:
+            logger.info("No user sessions found, attempting to associate existing sessions")
+            for session_id, context in context_manager.contexts.items():
+                if not context.user_email:
+                    context.user_email = user_email
+                    user_sessions.append(session_id)
+                    logger.info(f"Associated session {session_id} with user {user_email}")
+        
+        logger.info(f"Final user sessions count: {len(user_sessions)}")
+        
+                        # If no sessions found, return empty statistics
+        if not user_sessions:
+            logger.info("No user sessions found, returning empty statistics")
+            return jsonify({
+                'success': True,
+                'user_email': user_email,
+                'overall_stats': {
+                    'total_requests': 0,
+                    'total_input_tokens': 0,
+                    'total_output_tokens': 0,
+                    'total_cost': 0.0,
+                    'avg_tokens_per_request': 0.0,
+                    'avg_cost_per_request': 0.0,
+                    'total_sessions': 0
+                },
+                'capability_breakdown': {
+                    'general': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+                    'radiology': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+                    'lab': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+                    'engagement': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0}
+                },
+                'model_breakdown': {
+                    'gpt-4.1': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+                    'gpt-4o': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0}
+                },
+                'current_month': {
+                    'requests': 0,
+                    'input_tokens': 0,
+                    'output_tokens': 0,
+                    'cost': 0.0
+                },
+                'last_updated': datetime.now().isoformat(),
+                'debug_info': {
+                    'reason': 'No user sessions found',
+                    'context_manager_debug': context_manager.debug_contexts()
+                }
+            })
+        
+        # Calculate comprehensive statistics
+        total_requests = 0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost = 0.0
+        capability_stats = {
+            'general': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+            'radiology': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+            'lab': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+            'engagement': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0}
+        }
+        
+        model_stats = {
+            'gpt-4.1': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+            'gpt-4o': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0},
+            'gpt-4': {'requests': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0}
+        }
+        
+        # Process each session
+        for session_id in user_sessions:
+            context = context_manager.get_or_create_context(session_id)
+            
+            if context.conversation_history:
+                for turn in context.conversation_history:
+                    total_requests += 1
+                    
+                    # Estimate tokens (rough calculation)
+                    input_tokens = context_manager._count_tokens(turn.user_message)
+                    output_tokens = context_manager._count_tokens(turn.ai_response)
+                    
+                    total_input_tokens += input_tokens
+                    total_output_tokens += output_tokens
+                    
+                    # Estimate cost (using GPT-4.1 pricing as default)
+                    # GPT-4.1: $0.01 per 1K input tokens, $0.03 per 1K output tokens
+                    input_cost = (input_tokens / 1000) * 0.01
+                    output_cost = (output_tokens / 1000) * 0.03
+                    turn_cost = input_cost + output_cost
+                    total_cost += turn_cost
+                    
+                    # Capability breakdown
+                    capability = turn.capability or 'general'
+                    if capability in capability_stats:
+                        capability_stats[capability]['requests'] += 1
+                        capability_stats[capability]['input_tokens'] += input_tokens
+                        capability_stats[capability]['output_tokens'] += output_tokens
+                        capability_stats[capability]['cost'] += turn_cost
+                    
+                    # Model breakdown (assuming GPT-4.1 for now)
+                    model = 'gpt-4.1'  # You might want to store this in conversation turns
+                    if model in model_stats:
+                        model_stats[model]['requests'] += 1
+                        model_stats[model]['input_tokens'] += input_tokens
+                        model_stats[model]['output_tokens'] += output_tokens
+                        model_stats[model]['cost'] += turn_cost
+        
+        # Calculate averages
+        avg_tokens_per_request = total_input_tokens / total_requests if total_requests > 0 else 0
+        avg_cost_per_request = total_cost / total_requests if total_requests > 0 else 0
+        
+        # Get current month stats
+        current_month = datetime.now().strftime('%Y-%m')
+        current_month_stats = {
+            'requests': total_requests,  # Simplified - you might want to filter by date
+            'input_tokens': total_input_tokens,
+            'output_tokens': total_output_tokens,
+            'cost': total_cost
+        }
+        
+        return jsonify({
+            'success': True,
+            'user_email': user_email,
+            'overall_stats': {
+                'total_requests': total_requests,
+                'total_input_tokens': total_input_tokens,
+                'total_output_tokens': total_output_tokens,
+                'total_cost': round(total_cost, 4),
+                'avg_tokens_per_request': round(avg_tokens_per_request, 2),
+                'avg_cost_per_request': round(avg_cost_per_request, 4),
+                'total_sessions': len(user_sessions)
+            },
+            'capability_breakdown': capability_stats,
+            'model_breakdown': model_stats,
+            'current_month': current_month_stats,
+            'last_updated': datetime.now().isoformat(),
+            'debug_info': {
+                'user_sessions_count': len(user_sessions),
+                'user_sessions': user_sessions,
+                'context_manager_debug': context_manager.debug_contexts()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting usage statistics: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to get usage statistics'
+        }), 500
 
 if __name__ == '__main__':
     print(f"API running at http://localhost:{os.getenv('PORT', '5000')}")

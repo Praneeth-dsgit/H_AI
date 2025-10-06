@@ -69,6 +69,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000, description="User message")
+    user_email: Optional[str] = Field(None, description="User email for session tracking")
     patient_info: Optional[PatientInfo] = None
     file_context: Optional[Dict[str, Any]] = None
     file_findings: Optional[str] = None

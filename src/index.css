@@ -298,3 +298,14 @@ body {
   backface-visibility: hidden;
   perspective: 1000px;
 }
+
+/* Hide default password reveal/clear buttons in Edge & IE */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
+/* Hide autofill/reveal buttons in WebKit browsers (Safari, Chrome variants) */
+input::-webkit-credentials-auto-fill-button {
+  display: none;
+}

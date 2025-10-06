@@ -76,7 +76,7 @@ const QuickPrompts: React.FC<QuickPromptsProps> = ({ onSelectPrompt, capability 
           "What should I do if I have a fever?",
           "What are the side effects of paracetamol?",
           "How do I know if I have COVID-19?",
-          "What is a normal heart rate?",
+          "What is the normal heart rate?",
           "How much sleep do adults need?",
           "What are the signs of a heart attack?",
           "How can I treat a cold at home?",

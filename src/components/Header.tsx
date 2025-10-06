@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Activity, Trash2, User, LogIn, UserPlus, LogOut, ChevronDown, HelpCircle, PlusCircle, Stethoscope, Award, Brain, TestTube, Users, MessageSquare, FileText, Image as ImageIcon } from 'lucide-react';
+import { Activity, Trash2, User, LogIn, UserPlus, LogOut, ChevronDown, HelpCircle, PlusCircle, Stethoscope, Award, Brain, TestTube, Users, MessageSquare, FileText, Image as ImageIcon, BarChart3 } from 'lucide-react';
 import AboutModal from './AboutModal';
 import PrivacyModal from './PrivacyModal';
 import HelpModal from './HelpModal';
+import UsageStatisticsModal from './UsageStatisticsModal';
 
 interface HeaderProps {
   sessions: any[];
@@ -57,6 +58,7 @@ const Header: React.FC<HeaderProps> = ({
   const [showMoreOptionsDropdown, setShowMoreOptionsDropdown] = useState(false);
   const [dynamicFaqs, setDynamicFaqs] = useState<string[]>([]);
   const [isLoadingFaqs, setIsLoadingFaqs] = useState(false);
+  const [showUsageStats, setShowUsageStats] = useState(false);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const faqDropdownRef = useRef<HTMLDivElement>(null);
   const moreOptionsDropdownRef = useRef<HTMLDivElement>(null);
@@ -182,7 +184,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="bg-white shadow-sm border-b border-gray-100">
+      <header className="bg-blue-300 shadow-sm border-b border-gray-100">
         <div className="container mx-auto px-6 py-4 max-w-7xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
@@ -201,19 +203,19 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
                 {capabilityInfo && (
                   <div className="flex items-center space-x-2">
-                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${capabilityInfo.bgColor} ${capabilityInfo.color}`}>
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium hover:bg-blue-100 transition-all duration-300 shine-effect relative overflow-hidden hover:shadow-lg hover:shadow-blue-500/50 ${capabilityInfo.bgColor} ${capabilityInfo.color}`}>
                       {capabilityInfo.name}
                     </div>
                     {selectedCapability && selectedCapability !== 'engagement' && onSelectPrompt && (
                       <div className="relative" ref={faqDropdownRef}>
                         <button
                           onClick={handleFaqDropdownToggle}
-                          className="flex items-center px-2 py-2 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
+                          className="px-3 py-1 rounded text-sm font-medium border bg-gray-100 text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 flex items-center"
                           title={getCapabilityLabel(selectedCapability)}
                         >
                           {/*<HelpCircle size={14} className="mr-1" />*/}
                           FAQs
-                          <ChevronDown size={14} className="ml-1" />
+                          <ChevronDown size={18} className="ml-1" />
                         </button>
                         
                         {showFaqDropdown && (
@@ -261,7 +263,7 @@ const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
               {/* Session Dropdown and New Session Button aligned with chat window */}
-              <div className="flex-grow flex items-center" style={{ marginLeft: 0 }}>
+              <div className="flex-grow flex items-center" style={{ marginLeft: '10px' }}>
                 <div className="relative" ref={dropdownRef}>
                   <div className="inline-block relative">
                     <button
@@ -300,7 +302,7 @@ const Header: React.FC<HeaderProps> = ({
                   </div>
                 </div>
                 <button
-                  className="ml-2 px-3 py-1 rounded text-sm font-medium bg-green-500 text-white hover:bg-green-600"
+                  className="ml-3 px-3 py-1 rounded scale-105 text-sm font-medium bg-green-500 text-white hover:bg-green-600 hover:scale-105"
                   onClick={handleNewSession}
                 >
                   + New Chat
@@ -385,6 +387,16 @@ const Header: React.FC<HeaderProps> = ({
                             <button
                               onClick={() => {
                                 setShowProfileDropdown(false);
+                                setShowUsageStats(true);
+                              }}
+                              className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                            >
+                              <BarChart3 size={16} className="mr-2" />
+                              Usage Statistics
+                            </button>
+                            <button
+                              onClick={() => {
+                                setShowProfileDropdown(false);
                                 onLogout && onLogout();
                               }}
                               className="w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -434,6 +446,13 @@ const Header: React.FC<HeaderProps> = ({
       {showAboutModal && <AboutModal onClose={() => setShowAboutModal(false)} />}
       {showPrivacyModal && <PrivacyModal onClose={() => setShowPrivacyModal(false)} />}
       {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
+      {showUsageStats && (
+        <UsageStatisticsModal
+          isOpen={showUsageStats}
+          onClose={() => setShowUsageStats(false)}
+          userEmail={localStorage.getItem('userEmail') || ''}
+        />
+      )}
     </>
   );
 };

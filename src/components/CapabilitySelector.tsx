@@ -169,13 +169,13 @@ const CapabilitySelector: React.FC<CapabilitySelectorProps> = ({ onSelectCapabil
                   <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-4 mr-4 shadow-xl">
                     <Stethoscope size={28} className="text-white" />
                   </div>
-                  <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
+                  <div className="absolute -top-2 right-1.5 w-6 h-6 bg-green-500 rounded-full border-2 border-white animate-pulse"></div>
                 </div>
                 <div>
                   <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
                     MedChat Pro
                   </h1>
-                  <p className="text-sm text-gray-500 font-medium">Healthcare AI Assistant</p>
+                  <p className="text-left text-sm text-gray-500 font-medium">Healthcare AI Assistant</p>
                 </div>
               </div>
               <p className="text-gray-600 text-base max-w-2xl mx-auto">

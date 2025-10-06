@@ -197,7 +197,7 @@ SQL Query (SELECT ONLY):"""
             try:
                 logger.info(f"Attempt {attempt + 1}: Calling OpenAI API...")
                 response = openai.ChatCompletion.create(
-                    model="gpt-4",
+                    model="gpt-4.1",
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=200,
                     temperature=0.1
@@ -373,7 +373,7 @@ SQL Query (SELECT ONLY):"""
             # Format results using LLM for natural language
             logger.info("Formatting results with LLM...")
             try:
-            formatted_natural_results = self.format_results_with_llm(formatted_results, question)
+                formatted_natural_results = self.format_results_with_llm(formatted_results, question)
             except Exception as e:
                 logger.error(f"LLM formatting failed: {e}")
                 # Use simple fallback formatting
@@ -460,7 +460,7 @@ Return only the formatted sentences, one per line, without any additional format
 
             # Call OpenAI API with higher token limit to prevent truncation
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that converts database results into natural language."},
                     {"role": "user", "content": prompt}
@@ -859,19 +859,21 @@ Return only the formatted sentences, one per line, without any additional format
             
             query = """
             SELECT 
-                a.id,
-                a.appointment_time,
+                a.appointment_id,
+                a.appointment_date,
                 a.status,
-                p.name as patient_name,
+                p.first_name as patient_name,
                 p.phone as patient_phone,
-                d.name as doctor_name,
-                d.department
+                d.first_name as doctor_name,
+                d.department_id,
+                dept.name as department_name
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            WHERE a.appointment_time > NOW()
-            AND a.status = 'confirmed'
-            ORDER BY a.appointment_time
+            JOIN patients p ON a.patient_id = p.patient_id
+            JOIN doctors d ON a.doctor_id = d.doctor_id
+            JOIN departments dept ON d.department_id = dept.department_id
+            WHERE a.appointment_date > NOW()
+            AND a.status = 'Scheduled'
+            ORDER BY a.appointment_date
             LIMIT 20
             """
             
@@ -988,21 +990,21 @@ Return only the formatted sentences, one per line, without any additional format
             
             if patient_identifier.isdigit():
                 query = """
-                SELECT a.id, a.appointment_time, a.status
+                SELECT a.appointment_id, a.appointment_date, a.status
                 FROM appointments a
-                JOIN patients p ON a.patient_id = p.id
-                WHERE p.id = %s AND a.appointment_time > NOW()
-                ORDER BY a.appointment_time
+                JOIN patients p ON a.patient_id = p.patient_id
+                WHERE p.patient_id = %s AND a.appointment_date > NOW()
+                ORDER BY a.appointment_date
                 LIMIT 5
                 """
                 cursor.execute(query, (int(patient_identifier),))
             else:
                 query = """
-                SELECT a.id, a.appointment_time, a.status
+                SELECT a.appointment_id, a.appointment_date, a.status
                 FROM appointments a
-                JOIN patients p ON a.patient_id = p.id
-                WHERE p.name LIKE %s AND a.appointment_time > NOW()
-                ORDER BY a.appointment_time
+                JOIN patients p ON a.patient_id = p.patient_id
+                WHERE p.first_name LIKE %s AND a.appointment_date > NOW()
+                ORDER BY a.appointment_date
                 LIMIT 5
                 """
                 cursor.execute(query, (f"%{patient_identifier}%",))
@@ -1045,7 +1047,7 @@ If any information is not found, use null for that field.
 """
 
             response = openai.ChatCompletion.create(
-                model="gpt-4",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": "You are a healthcare assistant that extracts context from conversations."},
                     {"role": "user", "content": prompt}
@@ -1072,20 +1074,22 @@ If any information is not found, use null for that field.
             
             query = """
             SELECT 
-                a.id,
-                a.appointment_time,
+                a.appointment_id,
+                a.appointment_date,
                 a.status,
-                p.name as patient_name,
+                p.first_name as patient_name,
                 p.phone as patient_phone,
-                d.name as doctor_name,
-                d.department
+                d.first_name as doctor_name,
+                d.department_id,
+                dept.name as department_name
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            WHERE d.name LIKE %s
-            AND a.appointment_time > NOW()
-            AND a.status = 'confirmed'
-            ORDER BY a.appointment_time
+            JOIN patients p ON a.patient_id = p.patient_id
+            JOIN doctors d ON a.doctor_id = d.doctor_id
+            JOIN departments dept ON d.department_id = dept.department_id
+            WHERE d.first_name LIKE %s
+            AND a.appointment_date > NOW()
+            AND a.status = 'Scheduled'
+            ORDER BY a.appointment_date
             LIMIT 20
             """
             
@@ -1118,19 +1122,21 @@ If any information is not found, use null for that field.
             
             query = """
             SELECT 
-                a.id,
-                a.appointment_time,
+                a.appointment_id,
+                a.appointment_date,
                 a.status,
-                p.name as patient_name,
+                p.first_name as patient_name,
                 p.phone as patient_phone,
-                d.name as doctor_name,
-                d.department
+                d.first_name as doctor_name,
+                d.department_id,
+                dept.name as department_name
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            WHERE DATE(a.appointment_time) BETWEEN %s AND %s
-            AND a.status = 'confirmed'
-            ORDER BY a.appointment_time
+            JOIN patients p ON a.patient_id = p.patient_id
+            JOIN doctors d ON a.doctor_id = d.doctor_id
+            JOIN departments dept ON d.department_id = dept.department_id
+            WHERE DATE(a.appointment_date) BETWEEN %s AND %s
+            AND a.status = 'Scheduled'
+            ORDER BY a.appointment_date
             LIMIT 20
             """
             
@@ -1177,17 +1183,20 @@ If any information is not found, use null for that field.
             # SQL query to get today's appointments
             sql_query = """
             SELECT 
-                a.id,
-                p.name as patient_name,
-                a.appointment_time,
-                d.name as doctor_name,
-                d.department,
+                a.appointment_id,
+                p.first_name as patient_name,
+                p.phone as patient_phone,
+                a.appointment_date,
+                d.first_name as doctor_name,
+                d.department_id,
+                dept.name as department_name,
                 a.status
             FROM appointments a
-            JOIN patients p ON a.patient_id = p.id
-            JOIN doctors d ON a.doctor_id = d.id
-            WHERE DATE(a.appointment_time) = CURDATE()
-            ORDER BY a.appointment_time ASC
+            JOIN patients p ON a.patient_id = p.patient_id
+            JOIN doctors d ON a.doctor_id = d.doctor_id
+            JOIN departments dept ON d.department_id = dept.department_id
+            WHERE DATE(a.appointment_date) = CURDATE()
+            ORDER BY a.appointment_date ASC
             """
             
             # Execute query
@@ -1214,7 +1223,7 @@ If any information is not found, use null for that field.
                 formatted_appointments.append(formatted_appointment)
             
             logger.info(f"Found {len(formatted_appointments)} appointments for today")
-            
+            #logger.info(formatted_appointment)
             return {
                 'success': True,
                 'appointments': formatted_appointments,
