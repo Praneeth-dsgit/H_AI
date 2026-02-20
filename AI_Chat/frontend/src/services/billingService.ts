@@ -1,0 +1,152 @@
+/**
+ * Billing Service - API calls for billing and payments
+ */
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL + '/api';
+
+export interface Billing {
+  billing_id: number;
+  patient_id: string;
+  family_member_id?: number;
+  appointment_id?: number;
+  radiology_booking_id?: number;
+  admission_id?: number;
+  total_amount: number;
+  discount_amount: number;
+  tax_amount: number;
+  final_amount: number;
+  status: 'pending' | 'partial' | 'paid' | 'cancelled';
+  due_date?: string;
+  created_at: string;
+  items?: BillingItem[];
+}
+
+export interface BillingItem {
+  item_id: number;
+  billing_id: number;
+  item_name: string;
+  item_type: 'consultation' | 'procedure' | 'medication' | 'lab_test' | 'radiology' | 'room_charge' | 'other';
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+}
+
+export interface Payment {
+  payment_id: number;
+  billing_id: number;
+  payment_method: 'cash' | 'card' | 'upi' | 'net_banking' | 'insurance' | 'other';
+  amount: number;
+  transaction_id?: string;
+  payment_date: string;
+  status: 'pending' | 'completed' | 'failed' | 'refunded';
+  notes?: string;
+}
+
+export interface PaymentData {
+  billing_id: number;
+  payment_method: 'cash' | 'card' | 'upi' | 'net_banking' | 'insurance' | 'other';
+  amount: number;
+  transaction_id?: string;
+  notes?: string;
+}
+
+class BillingService {
+  private getPatientId(): string | null {
+    return localStorage.getItem('patient_id');
+  }
+
+  private getAuthHeaders(): HeadersInit {
+    const patientId = this.getPatientId();
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    if (patientId) {
+      headers['X-Patient-ID'] = patientId;
+    }
+    return headers;
+  }
+
+  async getBills(params?: {
+    status?: string;
+    start_date?: string;
+    end_date?: string;
+  }): Promise<{ success: boolean; bills?: Billing[]; error?: string }> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.status) queryParams.append('status', params.status);
+      if (params?.start_date) queryParams.append('start_date', params.start_date);
+      if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+      const url = `${API_BASE}/patient/billing${queryParams.toString() ? `?${queryParams}` : ''}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+
+  async getBill(billingId: number): Promise<{ success: boolean; bill?: Billing; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE}/patient/billing/${billingId}`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+
+  async makePayment(paymentData: PaymentData): Promise<{ success: boolean; payment?: Payment; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE}/patient/billing/payments`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(paymentData),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+
+  async getPaymentHistory(billingId?: number): Promise<{ success: boolean; payments?: Payment[]; error?: string }> {
+    try {
+      const url = billingId 
+        ? `${API_BASE}/patient/billing/payments?billing_id=${billingId}`
+        : `${API_BASE}/patient/billing/payments`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: 'Network error' };
+    }
+  }
+
+  async downloadInvoice(billingId: number): Promise<Blob | null> {
+    try {
+      const response = await fetch(`${API_BASE}/patient/billing/${billingId}/invoice`, {
+        method: 'GET',
+        headers: this.getAuthHeaders(),
+      });
+      if (response.ok) {
+        return await response.blob();
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+}
+
+export const billingService = new BillingService();
+

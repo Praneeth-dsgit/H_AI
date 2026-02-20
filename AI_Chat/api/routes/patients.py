@@ -1,0 +1,826 @@
+"""
+Patient Management Routes
+Handles patient profiles, family members, and medical records.
+"""
+from flask import Blueprint, request, jsonify
+import logging
+import traceback
+from config import db
+
+logger = logging.getLogger(__name__)
+
+# Create blueprint
+patients_bp = Blueprint('patients', __name__, url_prefix='/api/patient')
+
+@patients_bp.route('/list', methods=['GET'])
+def list_patients():
+    """Get list of patients (for doctors to select from)
+    If doctor_id is provided, only returns patients who have appointments with that doctor
+    """
+    try:
+        # Get optional search parameter and doctor_id
+        search = request.args.get('search', '')
+        doctor_id = request.args.get('doctor_id')
+        user_email = request.headers.get('X-User-Email')
+        
+        # If doctor_id not provided but user_email is, try to get doctor_id from email
+        if not doctor_id and user_email:
+            doctor_result = db.session.execute(
+                db.text("SELECT doctor_id FROM doctors WHERE email = :email AND is_active = TRUE"),
+                {"email": user_email}
+            ).fetchone()
+            if doctor_result:
+                doctor_id = str(doctor_result[0])
+        
+        # Build query - if doctor_id provided, join with appointments table
+        if doctor_id:
+            query = """
+                SELECT DISTINCT
+                    p.patient_id,
+                    p.first_name,
+                    p.last_name,
+                    p.date_of_birth,
+                    p.gender,
+                    p.email,
+                    p.phone
+                FROM patients p
+                INNER JOIN appointments a ON p.patient_id = a.patient_id
+                WHERE p.is_active = TRUE
+                AND a.doctor_id = :doctor_id
+            """
+            params = {'doctor_id': doctor_id}
+        else:
+            query = """
+                SELECT 
+                    patient_id,
+                    first_name,
+                    last_name,
+                    date_of_birth,
+                    gender,
+                    email,
+                    phone
+                FROM patients
+                WHERE is_active = TRUE
+            """
+            params = {}
+        
+        if search:
+            if doctor_id:
+                query += " AND (p.patient_id LIKE :search OR p.first_name LIKE :search OR p.last_name LIKE :search OR p.email LIKE :search)"
+            else:
+                query += " AND (patient_id LIKE :search OR first_name LIKE :search OR last_name LIKE :search OR email LIKE :search)"
+            params['search'] = f'%{search}%'
+        
+        if doctor_id:
+            query += " ORDER BY p.first_name, p.last_name LIMIT 100"
+        else:
+            query += " ORDER BY first_name, last_name LIMIT 100"
+        
+        result = db.session.execute(db.text(query), params).fetchall()
+        
+        patients = []
+        for row in result:
+            patient = dict(row._mapping) if hasattr(row, '_mapping') else dict(zip(row.keys(), row))
+            # Calculate age from date_of_birth
+            if patient.get('date_of_birth'):
+                from datetime import datetime
+                dob = patient['date_of_birth']
+                if isinstance(dob, str):
+                    dob = datetime.strptime(dob, '%Y-%m-%d').date()
+                today = datetime.now().date()
+                age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                patient['age'] = age
+            # Format date
+            if patient.get('date_of_birth'):
+                if hasattr(patient['date_of_birth'], 'isoformat'):
+                    patient['date_of_birth'] = patient['date_of_birth'].isoformat()
+                else:
+                    patient['date_of_birth'] = str(patient['date_of_birth'])
+            patients.append(patient)
+        
+        return jsonify({
+            'success': True,
+            'patients': patients
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error listing patients: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to list patients: {str(e)}'
+        }), 500
+
+@patients_bp.route('/profile', methods=['GET'])
+def get_patient_profile():
+    """Get patient profile by user email or patient_id"""
+    try:
+        # Try to get patient_id from header first
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
+        
+        logger.info(f"Fetching patient profile - patient_id: {patient_id}, user_email: {user_email}")
+        
+        patient = None
+        
+        if patient_id:
+            # Get patient by patient_id
+            logger.info(f"Looking up patient by patient_id: {patient_id}")
+            result = db.session.execute(
+                db.text("SELECT * FROM patients WHERE patient_id = :patient_id"),
+                {"patient_id": patient_id}
+            ).fetchone()
+            if result:
+                # Convert row to dict
+                patient = dict(result._mapping) if hasattr(result, '_mapping') else dict(zip(result.keys(), result))
+                logger.info(f"Found patient by patient_id: {patient.get('patient_id')}")
+            else:
+                logger.warning(f"No patient found with patient_id: {patient_id}")
+        elif user_email:
+            # Get patient by user email
+            logger.info(f"Looking up patient by user_email: {user_email}")
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.* FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient = dict(result._mapping) if hasattr(result, '_mapping') else dict(zip(result.keys(), result))
+                logger.info(f"Found patient by email: {patient.get('patient_id')}")
+            else:
+                logger.warning(f"No patient found with email: {user_email}")
+        else:
+            logger.warning("No patient_id or user_email provided in request")
+        
+        if not patient:
+            logger.error(f"Patient not found - patient_id: {patient_id}, user_email: {user_email}")
+            return jsonify({
+                'success': False,
+                'error': 'Patient not found. Please provide X-Patient-ID header or user_email parameter.'
+            }), 404
+        
+        # Convert date objects to strings
+        if patient.get('date_of_birth'):
+            patient['date_of_birth'] = patient['date_of_birth'].isoformat() if hasattr(patient['date_of_birth'], 'isoformat') else str(patient['date_of_birth'])
+        if patient.get('created_at'):
+            patient['created_at'] = patient['created_at'].isoformat() if hasattr(patient['created_at'], 'isoformat') else str(patient['created_at'])
+        if patient.get('updated_at'):
+            patient['updated_at'] = patient['updated_at'].isoformat() if hasattr(patient['updated_at'], 'isoformat') else str(patient['updated_at'])
+        
+        return jsonify({
+            'success': True,
+            'patient': patient
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching patient profile: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to fetch patient profile: {str(e)}'
+        }), 500
+
+@patients_bp.route('/profile', methods=['PUT'])
+def update_patient_profile():
+    """Update patient profile"""
+    try:
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
+        data = request.get_json()
+        
+        if not patient_id and not user_email:
+            return jsonify({
+                'success': False,
+                'error': 'X-Patient-ID header or user_email parameter required'
+            }), 400
+        
+        # Get patient_id if only user_email provided
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        # Update patient record
+        update_fields = []
+        update_values = {'patient_id': patient_id}
+        
+        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender', 'phone', 'email',
+                         'address', 'city', 'state', 'zip_code', 'country', 'blood_type',
+                         'height_cm', 'weight_kg', 'bmi', 'emergency_contact_name',
+                         'emergency_contact_phone', 'emergency_contact_relation']
+        
+        for field in allowed_fields:
+            if field in data:
+                update_fields.append(f"{field} = :{field}")
+                update_values[field] = data[field]
+        
+        if not update_fields:
+            return jsonify({
+                'success': False,
+                'error': 'No valid fields to update'
+            }), 400
+        
+        update_values['patient_id'] = patient_id
+        sql = f"""
+            UPDATE patients 
+            SET {', '.join(update_fields)}, updated_at = NOW()
+            WHERE patient_id = :patient_id
+        """
+        
+        db.session.execute(db.text(sql), update_values)
+        db.session.commit()
+        
+        # Fetch updated patient
+        result = db.session.execute(
+            db.text("SELECT * FROM patients WHERE patient_id = :patient_id"),
+            {"patient_id": patient_id}
+        ).fetchone()
+        
+        if result:
+            patient = dict(result._mapping) if hasattr(result, '_mapping') else dict(zip(result.keys(), result))
+            # Convert dates
+            if patient.get('date_of_birth'):
+                patient['date_of_birth'] = patient['date_of_birth'].isoformat() if hasattr(patient['date_of_birth'], 'isoformat') else str(patient['date_of_birth'])
+            if patient.get('created_at'):
+                patient['created_at'] = patient['created_at'].isoformat() if hasattr(patient['created_at'], 'isoformat') else str(patient['created_at'])
+            if patient.get('updated_at'):
+                patient['updated_at'] = patient['updated_at'].isoformat() if hasattr(patient['updated_at'], 'isoformat') else str(patient['updated_at'])
+            
+            return jsonify({
+                'success': True,
+                'patient': patient
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Patient not found after update'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error updating patient profile: {e}")
+        logger.error(traceback.format_exc())
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to update patient profile: {str(e)}'
+        }), 500
+
+@patients_bp.route('/family-members', methods=['GET'])
+def get_family_members():
+    """Get family members for a patient"""
+    try:
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
+        
+        # Get patient_id if only user_email provided
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'X-Patient-ID header or user_email parameter required'
+            }), 400
+        
+        # Get family members
+        result = db.session.execute(
+            db.text("""
+                SELECT * FROM family_members 
+                WHERE primary_patient_id = :patient_id AND is_active = 1
+                ORDER BY created_at DESC
+            """),
+            {"patient_id": patient_id}
+        ).fetchall()
+        
+        family_members = []
+        for row in result:
+            member = dict(row._mapping) if hasattr(row, '_mapping') else dict(zip(row.keys(), row))
+            # Convert dates
+            if member.get('date_of_birth'):
+                member['date_of_birth'] = member['date_of_birth'].isoformat() if hasattr(member['date_of_birth'], 'isoformat') else str(member['date_of_birth'])
+            family_members.append(member)
+        
+        return jsonify({
+            'success': True,
+            'family_members': family_members
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching family members: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to fetch family members: {str(e)}'
+        }), 500
+
+@patients_bp.route('/family-members', methods=['POST'])
+def add_family_member():
+    """Add a family member for a patient"""
+    try:
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email')
+        data = request.get_json()
+        
+        # Get patient_id if only user_email provided
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'X-Patient-ID header or user_email parameter required'
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['first_name', 'last_name', 'date_of_birth', 'gender', 'relationship']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'error': f'Missing required field: {field}'
+                }), 400
+        
+        # Insert family member
+        db.session.execute(
+            db.text("""
+                INSERT INTO family_members (
+                    primary_patient_id, first_name, last_name, date_of_birth, 
+                    gender, relationship, phone, email, blood_type, 
+                    height_cm, weight_kg, medical_history, allergies, is_active
+                )
+                VALUES (
+                    :primary_patient_id, :first_name, :last_name, :date_of_birth,
+                    :gender, :relationship, :phone, :email, :blood_type,
+                    :height_cm, :weight_kg, :medical_history, :allergies, :is_active
+                )
+            """),
+            {
+                'primary_patient_id': patient_id,
+                'first_name': data['first_name'],
+                'last_name': data['last_name'],
+                'date_of_birth': data['date_of_birth'],
+                'gender': data['gender'],
+                'relationship': data['relationship'],
+                'phone': data.get('phone'),
+                'email': data.get('email'),
+                'blood_type': data.get('blood_type'),
+                'height_cm': data.get('height_cm'),
+                'weight_kg': data.get('weight_kg'),
+                'medical_history': data.get('medical_history'),
+                'allergies': data.get('allergies'),
+                'is_active': data.get('is_active', True)
+            }
+        )
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Family member added successfully'
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error adding family member: {e}")
+        logger.error(traceback.format_exc())
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to add family member: {str(e)}'
+        }), 500
+
+@patients_bp.route('/family-members/<int:member_id>', methods=['PUT'])
+def update_family_member(member_id):
+    """Update a family member"""
+    try:
+        data = request.get_json()
+        
+        # Build update query
+        update_fields = []
+        update_values = {'member_id': member_id}
+        
+        allowed_fields = ['first_name', 'last_name', 'date_of_birth', 'gender', 'relationship',
+                         'phone', 'email', 'blood_type', 'height_cm', 'weight_kg',
+                         'medical_history', 'allergies', 'is_active']
+        
+        for field in allowed_fields:
+            if field in data:
+                update_fields.append(f"{field} = :{field}")
+                update_values[field] = data[field]
+        
+        if not update_fields:
+            return jsonify({
+                'success': False,
+                'error': 'No valid fields to update'
+            }), 400
+        
+        sql = f"""
+            UPDATE family_members 
+            SET {', '.join(update_fields)}, updated_at = NOW()
+            WHERE family_member_id = :member_id
+        """
+        
+        db.session.execute(db.text(sql), update_values)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Family member updated successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating family member: {e}")
+        logger.error(traceback.format_exc())
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to update family member: {str(e)}'
+        }), 500
+
+@patients_bp.route('/family-members/<int:member_id>', methods=['DELETE'])
+def delete_family_member(member_id):
+    """Delete (soft delete) a family member"""
+    try:
+        db.session.execute(
+            db.text("UPDATE family_members SET is_active = 0 WHERE family_member_id = :member_id"),
+            {"member_id": member_id}
+        )
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Family member deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting family member: {e}")
+        logger.error(traceback.format_exc())
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to delete family member: {str(e)}'
+        }), 500
+
+@patients_bp.route('/medical-records', methods=['GET'])
+def get_medical_records():
+    """Get medical records for a patient, optionally filtered by family member"""
+    try:
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email')
+        
+        # Get patient_id if only user_email provided
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'X-Patient-ID header or user_email parameter required'
+            }), 400
+        
+        # Get optional filters
+        record_type = request.args.get('type')
+        family_member_id = request.args.get('family_member_id')
+        
+        # Build query
+        query = """
+            SELECT 
+                mr.record_id,
+                mr.patient_id,
+                mr.family_member_id,
+                mr.record_type,
+                mr.title,
+                mr.description,
+                mr.file_path as file_url,
+                mr.file_type,
+                mr.visit_date,
+                mr.doctor_id,
+                mr.facility_id,
+                mr.created_at,
+                fm.first_name as family_member_first_name,
+                fm.last_name as family_member_last_name
+            FROM medical_records mr
+            LEFT JOIN family_members fm ON mr.family_member_id = fm.family_member_id
+            WHERE mr.patient_id = :patient_id
+        """
+        
+        params = {"patient_id": patient_id}
+        
+        # Add family member filter if specified
+        if family_member_id:
+            if family_member_id == 'self' or family_member_id == '0':
+                # Show only records for the patient (no family member)
+                query += " AND mr.family_member_id IS NULL"
+            else:
+                # Show records for specific family member
+                query += " AND mr.family_member_id = :family_member_id"
+                params['family_member_id'] = int(family_member_id)
+        # If no family_member_id filter, show all records (patient + family members)
+        
+        # Add record type filter if specified
+        if record_type:
+            query += " AND mr.record_type = :record_type"
+            params['record_type'] = record_type
+        
+        query += " ORDER BY mr.visit_date DESC, mr.created_at DESC"
+        
+        result = db.session.execute(db.text(query), params).fetchall()
+        
+        records = []
+        for row in result:
+            record = dict(row._mapping) if hasattr(row, '_mapping') else dict(zip(row.keys(), row))
+            # Convert dates to strings
+            if record.get('visit_date'):
+                record['visit_date'] = record['visit_date'].isoformat() if hasattr(record['visit_date'], 'isoformat') else str(record['visit_date'])
+            if record.get('created_at'):
+                record['created_at'] = record['created_at'].isoformat() if hasattr(record['created_at'], 'isoformat') else str(record['created_at'])
+            records.append(record)
+        
+        return jsonify({
+            'success': True,
+            'records': records
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching medical records: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to fetch medical records: {str(e)}'
+        }), 500
+
+@patients_bp.route('/medical-records', methods=['POST'])
+def upload_medical_record():
+    """Upload a medical record (prescription, lab report, etc.) for a patient"""
+    try:
+        from datetime import datetime
+        import os
+        from werkzeug.utils import secure_filename
+        
+        # Get patient_id from form data or header
+        patient_id = request.form.get('patient_id') or request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email')
+        
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'patient_id is required (in form data or X-Patient-ID header)'
+            }), 400
+        
+        # Check if file is provided
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+        
+        # Get record metadata
+        record_type = request.form.get('record_type', 'prescription')
+        title = request.form.get('title', file.filename)
+        description = request.form.get('description', '')
+        visit_date = request.form.get('visit_date', datetime.now().date().isoformat())
+        doctor_id = request.form.get('doctor_id')
+        facility_id = request.form.get('facility_id')
+        family_member_id = request.form.get('family_member_id')
+        
+        # If doctor_id not provided but user_email is, try to get doctor_id from email
+        if not doctor_id and user_email:
+            doctor_result = db.session.execute(
+                db.text("SELECT doctor_id FROM doctors WHERE email = :email AND is_active = TRUE"),
+                {"email": user_email}
+            ).fetchone()
+            if doctor_result:
+                doctor_id = str(doctor_result[0])
+        
+        # Save file
+        from config import UPLOAD_FOLDER
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_filename = f"{timestamp}_{filename}"
+        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+        
+        # Create upload folder if it doesn't exist
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        
+        file.save(file_path)
+        file_size = os.path.getsize(file_path)
+        
+        # Determine file type
+        file_type = file.content_type or 'application/octet-stream'
+        if filename.lower().endswith('.pdf'):
+            file_type = 'application/pdf'
+        elif filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            file_type = file.content_type or 'image/jpeg'
+        
+        # Insert record into database
+        result = db.session.execute(
+            db.text("""
+                INSERT INTO medical_records 
+                (patient_id, family_member_id, record_type, title, description, file_path, file_type, file_size, visit_date, doctor_id, facility_id, created_at, updated_at)
+                VALUES (:patient_id, :family_member_id, :record_type, :title, :description, :file_path, :file_type, :file_size, :visit_date, :doctor_id, :facility_id, NOW(), NOW())
+            """),
+            {
+                'patient_id': patient_id,
+                'family_member_id': int(family_member_id) if family_member_id else None,
+                'record_type': record_type,
+                'title': title,
+                'description': description,
+                'file_path': file_path,
+                'file_type': file_type,
+                'file_size': file_size,
+                'visit_date': visit_date,
+                'doctor_id': int(doctor_id) if doctor_id else None,
+                'facility_id': int(facility_id) if facility_id else None
+            }
+        )
+        db.session.commit()
+        
+        record_id = result.lastrowid
+        
+        return jsonify({
+            'success': True,
+            'record_id': record_id,
+            'message': 'Medical record uploaded successfully'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error uploading medical record: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to upload medical record: {str(e)}'
+        }), 500
+
+@patients_bp.route('/medical-records/<int:record_id>/download', methods=['GET'])
+def download_medical_record(record_id):
+    """Download a medical record file"""
+    try:
+        import os
+        from flask import send_file
+        from config import UPLOAD_FOLDER
+        
+        # Get patient_id from header to verify ownership
+        patient_id = request.headers.get('X-Patient-ID')
+        user_email = request.headers.get('X-User-Email')
+        
+        # Get patient_id if only user_email provided
+        if not patient_id and user_email:
+            result = db.session.execute(
+                db.text("""
+                    SELECT p.patient_id FROM patients p
+                    JOIN users u ON p.user_id = u.id
+                    WHERE u.email = :email
+                """),
+                {"email": user_email}
+            ).fetchone()
+            if result:
+                patient_id = result[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Patient not found'
+                }), 404
+        
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'X-Patient-ID header or X-User-Email header is required'
+            }), 400
+        
+        # Get the record and verify it belongs to the patient
+        result = db.session.execute(
+            db.text("""
+                SELECT mr.file_path, mr.file_type, mr.title, mr.patient_id
+                FROM medical_records mr
+                WHERE mr.record_id = :record_id AND mr.patient_id = :patient_id
+            """),
+            {"record_id": record_id, "patient_id": patient_id}
+        ).fetchone()
+        
+        if not result:
+            return jsonify({
+                'success': False,
+                'error': 'Record not found or access denied'
+            }), 404
+        
+        record = dict(result._mapping) if hasattr(result, '_mapping') else dict(zip(result.keys(), result))
+        file_path = record.get('file_path')
+        
+        if not file_path or not os.path.exists(file_path):
+            return jsonify({
+                'success': False,
+                'error': 'File not found on server'
+            }), 404
+        
+        # Determine MIME type
+        file_type = record.get('file_type', 'application/octet-stream')
+        if file_path.lower().endswith('.pdf'):
+            file_type = 'application/pdf'
+        elif file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            file_type = 'image/jpeg'
+        
+        # Get filename from path
+        filename = os.path.basename(file_path)
+        title = record.get('title', filename)
+        # Use title for download filename, but ensure it has proper extension
+        if not title.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            if file_type == 'application/pdf':
+                filename = f"{title}.pdf"
+            else:
+                filename = title
+        
+        return send_file(
+            file_path,
+            mimetype=file_type,
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Error downloading medical record: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Failed to download medical record: {str(e)}'
+        }), 500
+
