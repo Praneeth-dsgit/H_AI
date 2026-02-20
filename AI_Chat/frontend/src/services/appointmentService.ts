@@ -1,8 +1,11 @@
 /**
  * Appointment Service - API calls for appointment booking
+ * Uses JWT (Authorization: Bearer).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL + '/api';
+import { getAuthHeaders, authenticatedFetch } from './authService';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000') + '/api';
 
 export interface Appointment {
   appointment_id: number;
@@ -39,30 +42,15 @@ export interface AppointmentBookingData {
 }
 
 class AppointmentService {
-  private getPatientId(): string | null {
-    return localStorage.getItem('patient_id');
-  }
-
-  private getAuthHeaders(): HeadersInit {
-    const patientId = this.getPatientId();
-    const userEmail = localStorage.getItem('userEmail');
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    if (patientId) {
-      headers['X-Patient-ID'] = patientId;
-    }
-    if (userEmail) {
-      headers['X-User-Email'] = userEmail;
-    }
-    return headers;
+  getPatientId(): string | null {
+    return sessionStorage.getItem('patient_id');
   }
 
   async bookAppointment(data: AppointmentBookingData): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(data),
       });
       const result = await response.json();
@@ -74,9 +62,9 @@ class AppointmentService {
 
   async getAppointments(): Promise<{ success: boolean; appointments?: Appointment[]; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -87,9 +75,9 @@ class AppointmentService {
 
   async getAppointment(appointmentId: number): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments/${appointmentId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments/${appointmentId}`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -100,9 +88,9 @@ class AppointmentService {
 
   async cancelAppointment(appointmentId: number, reason?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments/${appointmentId}/cancel`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments/${appointmentId}/cancel`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify({ reason }),
       });
       const data = await response.json();
@@ -114,9 +102,9 @@ class AppointmentService {
 
   async rescheduleAppointment(appointmentId: number, newDate: string, newTime: string): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments/${appointmentId}/reschedule`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments/${appointmentId}/reschedule`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify({ appointment_date: newDate, appointment_time: newTime }),
       });
       const data = await response.json();
@@ -134,9 +122,9 @@ class AppointmentService {
     notes?: string;
   }): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments/${appointmentId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments/${appointmentId}`, {
         method: 'PUT',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(updates),
       });
       const data = await response.json();
@@ -148,9 +136,9 @@ class AppointmentService {
 
   async updateAppointmentStatus(appointmentId: number, status: string): Promise<{ success: boolean; appointment?: Appointment; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/appointments/${appointmentId}/status`, {
+      const response = await authenticatedFetch(`${API_BASE}/appointments/${appointmentId}/status`, {
         method: 'PUT',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status }),
       });
       const data = await response.json();

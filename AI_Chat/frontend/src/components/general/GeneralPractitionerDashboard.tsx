@@ -49,10 +49,7 @@ const GeneralPractitionerDashboard: React.FC = () => {
   };
 
   const handleLogout = () => {
-    // Clear all authentication data
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('patient_id');
+    import('../../services/authService').then((m) => m.clearAuth());
     // Clear role cache
     roleService.clearCache();
     navigate('/login');

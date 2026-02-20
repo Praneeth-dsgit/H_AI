@@ -1,3 +1,5 @@
+# Python 3.13: use pydantic>=2.10 (2.5.x / pydantic-core 2.14.x have no 3.13 wheels and build fails).
+# On 3.11/3.12 you can use pydantic==2.5.0 if you prefer.
 Flask==2.3.3
 Flask-Cors==4.0.0
 python-dotenv==1.0.0
@@ -12,7 +14,10 @@ flask_sqlalchemy
 werkzeug
 PyMySQL==1.1.0
 cryptography==41.0.3
-pydantic==2.5.0
+# Pydantic 2.10+ has prebuilt wheels for Python 3.13 (2.5.0 does not)
+pydantic>=2.10,<3
 pydantic[email]
-tiktoken==0.5.2
+# tiktoken optional: requires Rust to build if no wheel. App works without it (token count fallback).
+# pip install tiktoken  # uncomment or install separately if you need accurate token counts
 reportlab==4.0.7
+PyJWT==2.8.0

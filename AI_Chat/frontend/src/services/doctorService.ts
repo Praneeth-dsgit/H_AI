@@ -1,8 +1,11 @@
 /**
  * Doctor Service - API calls for doctor search and information
+ * Protected routes use JWT (Authorization: Bearer).
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL + '/api';
+import { getAuthHeaders, authenticatedFetch } from './authService';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000') + '/api';
 
 export interface Doctor {
   doctor_id: number;
@@ -99,17 +102,9 @@ class DoctorService {
 
   async getCurrentDoctor(): Promise<{ success: boolean; doctor?: Doctor; error?: string }> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-      }
-
-      const response = await fetch(`${API_BASE}/doctors/me`, {
+      const response = await authenticatedFetch(`${API_BASE}/doctors/me`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -120,17 +115,9 @@ class DoctorService {
 
   async getPatientFamilyMembers(patientId: string): Promise<{ success: boolean; family_members?: any[]; error?: string }> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-      }
-
-      const response = await fetch(`${API_BASE}/doctors/patients/${patientId}/family-members`, {
+      const response = await authenticatedFetch(`${API_BASE}/doctors/patients/${patientId}/family-members`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -141,22 +128,13 @@ class DoctorService {
 
   async getPrescriptions(doctorId?: number): Promise<{ success: boolean; prescriptions?: any[]; count?: number; error?: string }> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-      }
-
       const queryParams = new URLSearchParams();
       if (doctorId) {
         queryParams.append('doctor_id', doctorId.toString());
       }
-
-      const response = await fetch(`${API_BASE}/doctors/prescriptions?${queryParams}`, {
+      const response = await authenticatedFetch(`${API_BASE}/doctors/prescriptions?${queryParams}`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;

@@ -66,23 +66,16 @@ class RoleService {
 
   private async fetchUserRole(): Promise<RoleInfo | null> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      if (!userEmail) {
-        console.warn('No userEmail found in localStorage');
+      const { getAccessToken, authenticatedFetch, getAuthHeaders } = await import('./authService');
+      if (!getAccessToken()) {
+        console.warn('No access token found');
         this.cachedRole = null;
         this.cachedRoleInfo = null;
         return null;
       }
-
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        'X-User-Email': userEmail,
-      };
-
-      console.log('Fetching user role for:', userEmail);
-      const response = await fetch(`${API_BASE}/api/user-role`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/user-role`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {

@@ -3,6 +3,7 @@ Authentication Routes
 Handles user signup, login, OTP verification, and SMTP testing.
 """
 from flask import Blueprint, request, jsonify
+import jwt
 import logging
 import traceback
 from datetime import datetime
@@ -12,6 +13,7 @@ from config import db
 from validation_utils import validate_request
 from models import UserSignup, UserLogin, OTPVerification
 from services.email_service import send_otp_email
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -287,24 +289,50 @@ def login():
         logger.error(f"Error fetching/creating patient_id: {e}")
         logger.error(traceback.format_exc())
     
-    # Login successful
+    # Login successful: issue JWT access and refresh tokens (no session cookies)
+    from utils.jwt_utils import create_access_token, create_refresh_token
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id, email)
     logger.info(f"User {email} logged in successfully")
     return jsonify({
         'message': 'Login successful.',
-        'patient_id': patient_id  # Will be None for doctors/admins/employees
+        'accessToken': access_token,
+        'refreshToken': refresh_token,
+        'patient_id': patient_id,  # Will be None for doctors/admins/employees
+        'email': email,
     }), 200
 
-@auth_bp.route('/user-role', methods=['GET'])
-def get_user_role():
-    """Get the role of the currently logged-in user (patient or doctor)"""
+
+@auth_bp.route('/refresh', methods=['POST'])
+def refresh():
+    """Exchange a valid refresh token for a new access token."""
     try:
-        user_email = request.headers.get('X-User-Email')
-        
-        if not user_email:
-            return jsonify({
-                'success': False,
-                'error': 'X-User-Email header is required'
-            }), 400
+        data = request.get_json() or {}
+        refresh_token_value = data.get('refreshToken') or request.headers.get('Authorization', '').replace('Bearer ', '').strip()
+        if not refresh_token_value:
+            return jsonify({'error': 'refreshToken is required'}), 400
+        from utils.jwt_utils import verify_token, create_access_token, TOKEN_TYPE_REFRESH
+        payload = verify_token(refresh_token_value, expected_type=TOKEN_TYPE_REFRESH)
+        user_id = payload['sub']
+        email = payload['email']
+        new_access = create_access_token(user_id, email)
+        return jsonify({'accessToken': new_access}), 200
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Refresh token has expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Invalid refresh token'}), 401
+    except Exception as e:
+        import traceback
+        logger.warning("Refresh failed: %s\n%s", e, traceback.format_exc())
+        return jsonify({'error': 'Invalid or expired refresh token'}), 401
+
+
+@auth_bp.route('/user-role', methods=['GET'])
+@require_jwt
+def get_user_role():
+    """Get the role of the currently logged-in user (patient or doctor). Requires Authorization: Bearer <accessToken>."""
+    try:
+        user_email = g.user_email
         
         # Check if user exists - Use raw SQL to avoid ORM mapper initialization issues
         # Also fetch role in the same query to avoid multiple queries

@@ -6,7 +6,7 @@ import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, request, Response, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import pymysql
@@ -30,14 +30,42 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configure CORS
-CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',')
+# Configure CORS (strip whitespace from env list)
+CORS_ORIGINS = [o.strip() for o in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',') if o.strip()]
 # Enable CORS for all routes with explicit header support
+CORS_HEADERS = [
+    "Content-Type", "Authorization", "X-Requested-With", "Accept",
+    "X-Patient-ID", "X-User-Email"
+]
 CORS(app, 
      origins=CORS_ORIGINS,
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "X-Patient-ID", "X-User-Email"],
+     allow_headers=CORS_HEADERS,
      supports_credentials=False)
+
+
+@app.before_request
+def handle_preflight():
+    """Respond to CORS preflight OPTIONS with 200 and explicit CORS headers. Never fail."""
+    if request.method != "OPTIONS":
+        return None
+    try:
+        origin = (request.headers.get("Origin") or "").strip()
+        allow_origin = origin if origin else "*"
+        resp = make_response("", 200)
+        resp.headers["Access-Control-Allow-Origin"] = allow_origin
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        resp.headers["Access-Control-Allow-Headers"] = ", ".join(CORS_HEADERS)
+        resp.headers["Access-Control-Max-Age"] = "86400"
+        return resp
+    except Exception as e:
+        logger.warning("Preflight handler error: %s", e)
+        resp = make_response("", 200)
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return resp
+
 
 # Security headers middleware
 @app.after_request
@@ -105,6 +133,16 @@ if SMTP_USER and SMTP_PASS:
     logger.info(f"SMTP Configuration loaded: Server={SMTP_SERVER}, Port={SMTP_PORT}, User={SMTP_USER}, Password={'***SET***' if SMTP_PASS else 'NOT SET'}")
 else:
     logger.warning("SMTP credentials not configured. OTP emails will not work. Please set SMTP_USER and SMTP_PASS in .env file")
+
+# JWT Configuration (stateless auth; no session cookies)
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    import secrets
+    JWT_SECRET_KEY = secrets.token_hex(32)
+    logger.warning("JWT_SECRET_KEY not set in .env; using a random key (tokens will not persist across restarts). Set JWT_SECRET_KEY for production.")
+JWT_ACCESS_EXPIRY_MINUTES = int(os.getenv('JWT_ACCESS_EXPIRY_MINUTES', '15'))
+JWT_REFRESH_EXPIRY_DAYS = int(os.getenv('JWT_REFRESH_EXPIRY_DAYS', '7'))
+JWT_ALGORITHM = 'HS256'
 
 # Initialize models from database_models
 from database_models import create_models

@@ -103,7 +103,7 @@ const PatientEngagement: React.FC<PatientEngagementProps> = ({ sessionId }) => {
   useEffect(() => {
     if (sessionId) {
       try {
-        const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+        const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
         const sessionsKey = `${userEmail}_medchat-sessions`;
         const savedSessions = localStorage.getItem(sessionsKey);
         if (savedSessions) {
@@ -131,7 +131,7 @@ const PatientEngagement: React.FC<PatientEngagementProps> = ({ sessionId }) => {
   useEffect(() => {
     if (sessionId) {
       try {
-        const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+        const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
         const sessionsKey = `${userEmail}_medchat-sessions`;
         const savedSessions = localStorage.getItem(sessionsKey);
         if (savedSessions) {

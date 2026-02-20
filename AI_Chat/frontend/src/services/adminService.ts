@@ -1,7 +1,9 @@
 /**
  * Admin Service
- * Handles API calls for admin/user management
+ * Uses JWT (Authorization: Bearer).
  */
+
+import { getAuthHeaders, authenticatedFetch } from './authService';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -67,19 +69,6 @@ export interface AssignRoleData {
 }
 
 class AdminService {
-  private getAuthHeaders(): HeadersInit {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    
-    const userEmail = localStorage.getItem('userEmail');
-    if (userEmail) {
-      headers['X-User-Email'] = userEmail;
-    }
-    
-    return headers;
-  }
-
   async listUsers(params?: {
     role?: string;
     search?: string;
@@ -93,9 +82,9 @@ class AdminService {
       if (params?.page) queryParams.append('page', params.page.toString());
       if (params?.per_page) queryParams.append('per_page', params.per_page.toString());
 
-      const response = await fetch(`${API_BASE}/api/admin/users?${queryParams}`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users?${queryParams}`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -107,9 +96,9 @@ class AdminService {
 
   async createUser(userData: CreateUserData): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(userData),
       });
 
@@ -122,9 +111,9 @@ class AdminService {
 
   async updateUser(userId: number, userData: UpdateUserData): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users/${userId}`, {
         method: 'PUT',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(userData),
       });
 
@@ -137,9 +126,9 @@ class AdminService {
 
   async deleteUser(userId: number): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users/${userId}`, {
         method: 'DELETE',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -151,9 +140,9 @@ class AdminService {
 
   async verifyUser(userId: number, isVerified: boolean): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users/${userId}/verify`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users/${userId}/verify`, {
         method: 'PUT',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify({ is_verified: isVerified }),
       });
 
@@ -166,9 +155,9 @@ class AdminService {
 
   async getSpecialties(): Promise<{ success: boolean; specialties?: Specialty[]; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/specialties`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/specialties`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -180,9 +169,9 @@ class AdminService {
 
   async listUnassignedStaff(): Promise<{ success: boolean; staff?: UnassignedStaff[]; count?: number; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/unassigned-staff`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/unassigned-staff`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -194,9 +183,9 @@ class AdminService {
 
   async assignRoleToStaff(assignData: AssignRoleData): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/api/admin/users`, {
+      const response = await authenticatedFetch(`${API_BASE}/api/admin/users`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(assignData),
       });
 

@@ -464,7 +464,7 @@ const Header: React.FC<HeaderProps> = ({
         <UsageStatisticsModal
           isOpen={showUsageStats}
           onClose={() => setShowUsageStats(false)}
-          userEmail={localStorage.getItem('userEmail') || ''}
+          userEmail={sessionStorage.getItem('userEmail') || ''}
         />
       )}
     </>

@@ -1,12 +1,14 @@
 """
 Doctor and Facility Routes
 Handles doctor search, facility search, and specialties.
+Uses JWT for protected routes; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
 import traceback
 from datetime import datetime
 from config import db
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -196,13 +198,14 @@ def get_specialties():
         }), 500
 
 @doctors_bp.route('/doctors/prescriptions', methods=['GET'])
+@require_jwt
 def get_doctor_prescriptions():
     """Get all prescriptions created by a doctor"""
     try:
         doctor_id = request.args.get('doctor_id')
-        user_email = request.headers.get('X-User-Email')
+        user_email = g.user_email
         
-        # If doctor_id not provided, get it from user_email
+        # If doctor_id not provided, get it from authenticated user
         if not doctor_id and user_email:
             doctor_result = db.session.execute(
                 db.text("SELECT doctor_id FROM doctors WHERE email = :email AND is_active = TRUE"),
@@ -219,7 +222,7 @@ def get_doctor_prescriptions():
         if not doctor_id:
             return jsonify({
                 'success': False,
-                'error': 'doctor_id parameter or X-User-Email header is required'
+                'error': 'doctor_id parameter required or user must be a doctor'
             }), 400
         
         # Get prescriptions created by this doctor
@@ -277,16 +280,11 @@ def get_doctor_prescriptions():
         }), 500
 
 @doctors_bp.route('/doctors/patients/<patient_id>/family-members', methods=['GET'])
+@require_jwt
 def get_patient_family_members(patient_id):
     """Get family members for a patient (for doctors who have appointments with the patient)"""
     try:
-        user_email = request.headers.get('X-User-Email')
-        
-        if not user_email:
-            return jsonify({
-                'success': False,
-                'error': 'X-User-Email header is required'
-            }), 400
+        user_email = g.user_email
         
         # Verify doctor has appointments with this patient
         doctor_result = db.session.execute(
@@ -698,16 +696,11 @@ Format the report professionally with clear sections, use bullet points where ap
         }), 500
 
 @doctors_bp.route('/doctors/me', methods=['GET'])
+@require_jwt
 def get_current_doctor():
     """Get doctor information for the currently logged-in user"""
     try:
-        user_email = request.headers.get('X-User-Email')
-        
-        if not user_email:
-            return jsonify({
-                'success': False,
-                'error': 'X-User-Email header is required'
-            }), 400
+        user_email = g.user_email
         
         # Try to find doctor by email (assuming doctors table has email or is linked to users)
         # First, try to find user_id from email

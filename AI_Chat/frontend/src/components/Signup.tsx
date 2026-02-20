@@ -35,7 +35,7 @@ const Signup: React.FC<SignupProps> = ({ onSignupSuccess, onNavigateToLogin }) =
       if (res.ok) {
         // Store patient_id if provided
         if (data.patient_id) {
-          localStorage.setItem('patient_id', data.patient_id);
+          sessionStorage.setItem('patient_id', data.patient_id);
           setMessage(`Signup successful! Your patient profile has been created with Patient ID: ${data.patient_id}. You can now login.`);
         } else {
           setMessage('Signup successful! You can now login.');

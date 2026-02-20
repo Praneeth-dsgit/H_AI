@@ -105,17 +105,13 @@ const ChatInterface: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const userEmail = localStorage.getItem('userEmail') || '';
       const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
-      
-      const response = await fetch(`${API_BASE}/api/chat/stream`, {
+      const { authenticatedFetch, getAuthHeaders } = await import('../../services/authService');
+      const response = await authenticatedFetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           message: queryToSubmit.trim(),
-          userEmail: userEmail,
           capability: 'general',
           patientInfo: null,
           fileContext: null,

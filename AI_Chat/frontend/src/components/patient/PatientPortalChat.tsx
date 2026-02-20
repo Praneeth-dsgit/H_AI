@@ -596,12 +596,11 @@ const PatientPortalChat = React.forwardRef<{ clearMessages: () => void }, {}>((_
       if (isBookingRequest) {
         // Try to extract and book directly
         try {
-          const response = await fetch('http://localhost:5000/api/patient-portal/extract-and-book', {
+          const { authenticatedFetch, getAuthHeaders } = await import('../../services/authService');
+          const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+          const response = await authenticatedFetch(`${API_BASE}/api/patient-portal/extract-and-book`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Patient-ID': localStorage.getItem('patient_id') || '',
-            },
+            headers: getAuthHeaders(),
             body: JSON.stringify({
               query: currentQuery,
             }),
@@ -651,12 +650,11 @@ const PatientPortalChat = React.forwardRef<{ clearMessages: () => void }, {}>((_
           .map(msg => `${msg.content}: ${msg.natural_results?.join(' ') || ''}`)
           .join('\n');
 
-        const response = await fetch('http://localhost:5000/api/patient-portal/query', {
+        const { authenticatedFetch, getAuthHeaders } = await import('../../services/authService');
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+        const response = await authenticatedFetch(`${API_BASE}/api/patient-portal/query`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Patient-ID': localStorage.getItem('patient_id') || '',
-          },
+          headers: getAuthHeaders(),
           body: JSON.stringify({
             query: currentQuery,
             conversation_context: conversationContext,
@@ -700,12 +698,11 @@ const PatientPortalChat = React.forwardRef<{ clearMessages: () => void }, {}>((_
           content: msg.content
         }));
 
-      const response = await fetch('http://localhost:5000/api/patient-portal/chat', {
+      const { authenticatedFetch, getAuthHeaders } = await import('../../services/authService');
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const response = await authenticatedFetch(`${API_BASE}/api/patient-portal/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Patient-ID': localStorage.getItem('patient_id') || '',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           message: queryToSubmit.trim(),
           detailed_context: detailedContext,

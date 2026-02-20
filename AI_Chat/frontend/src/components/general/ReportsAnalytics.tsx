@@ -186,13 +186,10 @@ const ReportsAnalytics: React.FC = () => {
       };
 
       // Call backend API to generate AI report
-      const userEmail = localStorage.getItem('userEmail');
-      const response = await fetch('http://localhost:5000/api/doctors/generate-report', {
+      const { authenticatedFetch, getAuthHeaders } = await import('../../services/authService');
+      const response = await authenticatedFetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/doctors/generate-report`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Email': userEmail || ''
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ analyticsData })
       });
 

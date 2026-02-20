@@ -1,11 +1,13 @@
 """
 Patient Management Routes
 Handles patient profiles, family members, and medical records.
+Uses JWT for auth; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
 import traceback
 from config import db
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 patients_bp = Blueprint('patients', __name__, url_prefix='/api/patient')
 
 @patients_bp.route('/list', methods=['GET'])
+@require_jwt
 def list_patients():
     """Get list of patients (for doctors to select from)
     If doctor_id is provided, only returns patients who have appointments with that doctor
@@ -21,7 +24,7 @@ def list_patients():
         # Get optional search parameter and doctor_id
         search = request.args.get('search', '')
         doctor_id = request.args.get('doctor_id')
-        user_email = request.headers.get('X-User-Email')
+        user_email = g.user_email
         
         # If doctor_id not provided but user_email is, try to get doctor_id from email
         if not doctor_id and user_email:
@@ -112,12 +115,12 @@ def list_patients():
         }), 500
 
 @patients_bp.route('/profile', methods=['GET'])
+@require_jwt
 def get_patient_profile():
     """Get patient profile by user email or patient_id"""
     try:
-        # Try to get patient_id from header first
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
+        patient_id = request.args.get('patient_id') or g.patient_id
+        user_email = g.user_email
         
         logger.info(f"Fetching patient profile - patient_id: {patient_id}, user_email: {user_email}")
         
@@ -184,36 +187,18 @@ def get_patient_profile():
         }), 500
 
 @patients_bp.route('/profile', methods=['PUT'])
+@require_jwt
 def update_patient_profile():
     """Update patient profile"""
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
+        patient_id = g.patient_id
         data = request.get_json()
         
-        if not patient_id and not user_email:
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or user_email parameter required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
         
         # Update patient record
         update_fields = []
@@ -281,34 +266,15 @@ def update_patient_profile():
         }), 500
 
 @patients_bp.route('/family-members', methods=['GET'])
+@require_jwt
 def get_family_members():
     """Get family members for a patient"""
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email') or request.args.get('user_email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or user_email parameter required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Get family members
@@ -431,6 +397,7 @@ def add_family_member():
         }), 500
 
 @patients_bp.route('/family-members/<int:member_id>', methods=['PUT'])
+@require_jwt
 def update_family_member(member_id):
     """Update a family member"""
     try:
@@ -479,6 +446,7 @@ def update_family_member(member_id):
         }), 500
 
 @patients_bp.route('/family-members/<int:member_id>', methods=['DELETE'])
+@require_jwt
 def delete_family_member(member_id):
     """Delete (soft delete) a family member"""
     try:
@@ -503,34 +471,15 @@ def delete_family_member(member_id):
         }), 500
 
 @patients_bp.route('/medical-records', methods=['GET'])
+@require_jwt
 def get_medical_records():
     """Get medical records for a patient, optionally filtered by family member"""
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or user_email parameter required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Get optional filters
@@ -605,6 +554,7 @@ def get_medical_records():
         }), 500
 
 @patients_bp.route('/medical-records', methods=['POST'])
+@require_jwt
 def upload_medical_record():
     """Upload a medical record (prescription, lab report, etc.) for a patient"""
     try:
@@ -612,31 +562,13 @@ def upload_medical_record():
         import os
         from werkzeug.utils import secure_filename
         
-        # Get patient_id from form data or header
-        patient_id = request.form.get('patient_id') or request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
+        patient_id = request.form.get('patient_id') or g.patient_id
+        user_email = g.user_email
         
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'patient_id is required (in form data or X-Patient-ID header)'
+                'error': 'patient_id is required (or must be the authenticated patient)'
             }), 400
         
         # Check if file is provided
@@ -662,7 +594,7 @@ def upload_medical_record():
         facility_id = request.form.get('facility_id')
         family_member_id = request.form.get('family_member_id')
         
-        # If doctor_id not provided but user_email is, try to get doctor_id from email
+        # If doctor_id not provided, try to get from authenticated user
         if not doctor_id and user_email:
             doctor_result = db.session.execute(
                 db.text("SELECT doctor_id FROM doctors WHERE email = :email AND is_active = TRUE"),
@@ -732,6 +664,7 @@ def upload_medical_record():
         }), 500
 
 @patients_bp.route('/medical-records/<int:record_id>/download', methods=['GET'])
+@require_jwt
 def download_medical_record(record_id):
     """Download a medical record file"""
     try:
@@ -739,32 +672,11 @@ def download_medical_record(record_id):
         from flask import send_file
         from config import UPLOAD_FOLDER
         
-        # Get patient_id from header to verify ownership
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Get the record and verify it belongs to the patient

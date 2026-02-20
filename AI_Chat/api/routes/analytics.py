@@ -1,9 +1,11 @@
 """
 Analytics Routes
 Handles speech-to-text and usage statistics.
+Uses JWT for protected routes; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
+from utils.jwt_utils import require_jwt
 import traceback
 import os
 import time
@@ -81,19 +83,13 @@ def speech_to_text():
         }), 500
 
 @analytics_bp.route('/usage/statistics', methods=['GET'])
+@require_jwt
 def get_usage_statistics():
     """
     Get comprehensive usage statistics including requests, tokens, costs, and capability breakdown
     """
     try:
-        # Get user email from request headers or query params
-        user_email = request.args.get('user_email') or request.headers.get('X-User-Email')
-        
-        if not user_email:
-            return jsonify({
-                'success': False,
-                'error': 'User email is required'
-            }), 400
+        user_email = g.user_email
         
         # Get all sessions for the user using the new user-session mapping
         user_sessions = context_manager.get_user_sessions(user_email)

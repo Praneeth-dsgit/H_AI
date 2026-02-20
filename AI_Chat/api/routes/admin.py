@@ -1,12 +1,14 @@
 """
 Admin Routes
 Handles user management, role assignment, and access control for HR/Admin users.
+Uses JWT for auth; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
 import traceback
 from datetime import datetime
 from config import db
+from utils.jwt_utils import require_jwt
 # Note: User model import removed to avoid SQLAlchemy mapper initialization issues
 # Using raw SQL queries instead
 from werkzeug.security import generate_password_hash
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
 @admin_bp.route('/users', methods=['GET'])
+@require_jwt
 def list_users():
     """List all users with their roles and status"""
     try:
@@ -195,6 +198,7 @@ def list_users():
         }), 500
 
 @admin_bp.route('/users', methods=['POST'])
+@require_jwt
 def create_user():
     """
     Create a new user with role assignment
@@ -437,6 +441,7 @@ def create_user():
         }), 500
 
 @admin_bp.route('/users/<int:user_id>', methods=['PUT'])
+@require_jwt
 def update_user(user_id):
     """Update user information and role"""
     try:
@@ -641,6 +646,7 @@ def update_user(user_id):
         }), 500
 
 @admin_bp.route('/users/<int:user_id>/verify', methods=['PUT'])
+@require_jwt
 def verify_user(user_id):
     """Verify or unverify a user account"""
     try:
@@ -687,6 +693,7 @@ def verify_user(user_id):
         }), 500
 
 @admin_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@require_jwt
 def delete_user(user_id):
     """Delete a user (soft delete by deactivating)"""
     try:
@@ -759,6 +766,7 @@ def delete_user(user_id):
         }), 500
 
 @admin_bp.route('/unassigned-staff', methods=['GET'])
+@require_jwt
 def list_unassigned_staff():
     """List doctors and staff who don't have user accounts yet"""
     try:
@@ -812,6 +820,7 @@ def list_unassigned_staff():
         }), 500
 
 @admin_bp.route('/specialties', methods=['GET'])
+@require_jwt
 def get_specialties():
     """Get all specialties for doctor role assignment"""
     try:

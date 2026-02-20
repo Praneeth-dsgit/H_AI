@@ -4,6 +4,7 @@ import ChatMessage from './components/ChatMessage';
 import LoadingDots from './components/LoadingDots';
 import DisclaimerModal from './components/DisclaimerModal';
 import { type Capability } from './services/roleService';
+import { clearAuth } from './services/authService';
 import PatientInfoForm from './components/PatientInfoForm';
 import PatientEngagement from './components/PatientEngagement';
 import VoiceInput from './components/VoiceInput';
@@ -169,7 +170,7 @@ const App: FC = () => {
   const [otpVerified, setOtpVerified] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+  const isAuthenticated = sessionStorage.getItem('isAuthenticated') === 'true' && !!sessionStorage.getItem('accessToken');
   
   // Get capability from URL path
   const getCapabilityFromPath = (): Capability | null => {
@@ -183,7 +184,7 @@ const App: FC = () => {
  
   // ProtectedRoute component
   const ProtectedRoute: FC<{ children: React.ReactNode }> = ({ children }) => {
-    const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
+    const isAuthenticated = sessionStorage.getItem('isAuthenticated') === 'true' && !!sessionStorage.getItem('accessToken');
     return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
   };
 
@@ -281,7 +282,7 @@ const App: FC = () => {
               
         // Save capability for current session if it exists
         if (currentSessionId) {
-          const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+          const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
           const storageKey = `${userEmail}_sessionCapabilities`;
           const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
           sessionCapabilities[currentSessionId] = routeCapability;
@@ -318,7 +319,7 @@ const App: FC = () => {
   // Load saved capability on mount and for current session
   useEffect(() => {
     if (currentSessionId && isAuthenticated) {
-      const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+      const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
       const storageKey = `${userEmail}_sessionCapabilities`;
       const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
       const sessionCapability = sessionCapabilities[currentSessionId] as Capability;
@@ -402,7 +403,7 @@ const App: FC = () => {
     if (!isAuthenticated) return;
     
     const loadedSessions = getSessions();
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
     const storageKey = `${userEmail}_sessionCapabilities`;
     const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
     
@@ -456,7 +457,7 @@ const App: FC = () => {
     setMessages(sessionMessages);
     
     // Load capability for this session (user-specific)
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
     const storageKey = `${userEmail}_sessionCapabilities`;
     const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
     const sessionCapability = sessionCapabilities[sessionId] as Capability;
@@ -501,7 +502,7 @@ const App: FC = () => {
       setShowDisclaimer(false);
       
       // Save capability for new session
-      const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+      const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
       const storageKey = `${userEmail}_sessionCapabilities`;
       const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
       sessionCapabilities[newId] = routeCapability;
@@ -522,7 +523,7 @@ const App: FC = () => {
     removeSession(sessionId);
     
     // Clean up capability data for deleted session (user-specific)
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
     const storageKey = `${userEmail}_sessionCapabilities`;
     const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
     delete sessionCapabilities[sessionId];
@@ -549,7 +550,7 @@ const App: FC = () => {
   };
 
   const handlePatientSubmit = async (info: PatientInfo) => {
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
     // Create a detailed message with patient information
     const patientDetails = [
       `Age: ${info.age} years`,
@@ -707,7 +708,7 @@ const App: FC = () => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
     
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
 
     if (editingMessageId) {
       // Find the index of the user message
@@ -1194,7 +1195,7 @@ const App: FC = () => {
 
   // Get session capability
   function getSessionCapability(sessionId: string): string {
-    const userEmail = localStorage.getItem('userEmail') || 'anonymous';
+    const userEmail = sessionStorage.getItem('userEmail') || 'anonymous';
     const storageKey = `${userEmail}_sessionCapabilities`;
     const sessionCapabilities = JSON.parse(localStorage.getItem(storageKey) || '{}');
     const capability = sessionCapabilities[sessionId];
@@ -1350,9 +1351,7 @@ const App: FC = () => {
               // Clear all user-specific data
               clearUserData();
               roleService.clearCache();
-              localStorage.removeItem('isAuthenticated');
-              localStorage.removeItem('userEmail');
-              localStorage.removeItem('patient_id');
+              clearAuth();
               
               // Reset application state
               setSessions([]);
@@ -1702,9 +1701,7 @@ const App: FC = () => {
             onLogout={() => {
               clearUserData();
               roleService.clearCache();
-              localStorage.removeItem('isAuthenticated');
-              localStorage.removeItem('userEmail');
-              localStorage.removeItem('patient_id');
+              clearAuth();
               setSessions([]);
               setMessages([]);
               setCurrentSessionIdState(null);
@@ -2033,9 +2030,7 @@ const App: FC = () => {
             onLogout={() => {
               clearUserData();
               roleService.clearCache();
-              localStorage.removeItem('isAuthenticated');
-              localStorage.removeItem('userEmail');
-              localStorage.removeItem('patient_id');
+              clearAuth();
               setSessions([]);
               setMessages([]);
               setCurrentSessionIdState(null);

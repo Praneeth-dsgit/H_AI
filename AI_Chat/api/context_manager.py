@@ -1,6 +1,5 @@
 import json
 import time
-import tiktoken
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -8,11 +7,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialize tokenizer for GPT-4
+# Optional: tiktoken for accurate token counts (requires Rust build on some platforms)
 try:
+    import tiktoken
     tokenizer = tiktoken.encoding_for_model("gpt-4")
-except:
-    # Fallback if tiktoken not available
+except Exception as e:
+    logger.warning("tiktoken not available, token counting will use fallback: %s", e)
     tokenizer = None
 
 class ContextType(Enum):

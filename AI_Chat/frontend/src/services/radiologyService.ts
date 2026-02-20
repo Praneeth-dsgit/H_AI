@@ -40,7 +40,7 @@ export interface RadiologyBookingData {
 
 class RadiologyService {
   private getPatientId(): string | null {
-    return localStorage.getItem('patient_id');
+    return sessionStorage.getItem('patient_id');
   }
 
   private getAuthHeaders(): HeadersInit {

@@ -1,12 +1,14 @@
 """
 Notification Routes
 Handles WhatsApp and email notifications, and in-app notifications.
+Uses JWT for protected routes; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from config import db
 import os
 import logging
 import traceback
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -104,45 +106,15 @@ def send_bulk_appointment_reminders():
         return jsonify({'error': 'Internal server error'}), 500
 
 @notifications_bp.route('/patient', methods=['GET', 'OPTIONS'])
+@require_jwt
 def get_patient_notifications():
     """Get in-app notifications for a patient"""
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'success': True})
-        origin = request.headers.get('Origin')
-        allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',')
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, X-Patient-ID, X-User-Email')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        return response, 200
-    
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Get query parameters
@@ -195,45 +167,15 @@ def get_patient_notifications():
         }), 500
 
 @notifications_bp.route('/patient/<int:notification_id>/read', methods=['PUT', 'OPTIONS'])
+@require_jwt
 def mark_notification_read(notification_id):
     """Mark a notification as read"""
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'success': True})
-        origin = request.headers.get('Origin')
-        allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',')
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, X-Patient-ID, X-User-Email')
-        response.headers.add('Access-Control-Allow-Methods', 'PUT, OPTIONS')
-        return response, 200
-    
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Verify notification belongs to patient
@@ -280,45 +222,15 @@ def mark_notification_read(notification_id):
         }), 500
 
 @notifications_bp.route('/patient/read-all', methods=['PUT', 'OPTIONS'])
+@require_jwt
 def mark_all_notifications_read():
     """Mark all notifications as read for a patient"""
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'success': True})
-        origin = request.headers.get('Origin')
-        allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',')
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, X-Patient-ID, X-User-Email')
-        response.headers.add('Access-Control-Allow-Methods', 'PUT, OPTIONS')
-        return response, 200
-    
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Mark all as read
@@ -348,45 +260,15 @@ def mark_all_notifications_read():
         }), 500
 
 @notifications_bp.route('/patient/clear-all', methods=['DELETE', 'OPTIONS'])
+@require_jwt
 def clear_all_notifications():
     """Delete all notifications for a patient"""
-    if request.method == 'OPTIONS':
-        # Handle preflight request
-        response = jsonify({'success': True})
-        origin = request.headers.get('Origin')
-        allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173,http://192.168.5.111:5173').split(',')
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, X-Patient-ID, X-User-Email')
-        response.headers.add('Access-Control-Allow-Methods', 'DELETE, OPTIONS')
-        return response, 200
-    
     try:
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        # Get patient_id if only user_email provided
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found'
-                }), 404
-        
+        patient_id = g.patient_id
         if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header required'
+                'error': 'No patient record for this user'
             }), 400
         
         # Delete all notifications for the patient

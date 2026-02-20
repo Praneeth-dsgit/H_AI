@@ -46,14 +46,14 @@ const PatientDashboard: React.FC = () => {
       if (patientResult.success && patientResult.patient) {
         setPatient(patientResult.patient);
         // Store patient_id in localStorage if not already there
-        if (!localStorage.getItem('patient_id')) {
-          localStorage.setItem('patient_id', patientResult.patient.patient_id);
+        if (!sessionStorage.getItem('patient_id')) {
+          sessionStorage.setItem('patient_id', patientResult.patient.patient_id);
         }
       } else {
         console.error('Failed to load patient profile:', patientResult.error);
         // Show error message
-        console.error('Patient ID from localStorage:', localStorage.getItem('patient_id'));
-        console.error('User Email from localStorage:', localStorage.getItem('userEmail'));
+        console.error('Patient ID from sessionStorage:', sessionStorage.getItem('patient_id'));
+        console.error('User Email from sessionStorage:', sessionStorage.getItem('userEmail'));
       }
 
       // Load upcoming appointments

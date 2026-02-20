@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { Eye, EyeOff, UserPlus, AlertCircle } from 'lucide-react';
 import UsageStatisticsModal from './UsageStatisticsModal';
 import { roleService } from '../services/roleService';
+import { setTokens, getAuthHeaders, clearAuth } from '../services/authService';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://192.168.5.111:5000';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -30,7 +33,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateToSignup, redir
     setShowUserNotFoundDialog(false);
     
     try {
-      const res = await fetch('http://192.168.5.111:5000/api/login', {
+      const res = await fetch(`${API_BASE}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -50,80 +53,37 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onNavigateToSignup, redir
       
       if (res.ok) {
         setMessage('Login successful! Redirecting...');
-        
-        // Clear all previous authentication data to prevent conflicts
-        localStorage.removeItem('isAuthenticated');
-        localStorage.removeItem('userEmail');
-        localStorage.removeItem('patient_id');
-        // Clear any role-specific data
+        const accessToken = data.accessToken;
+        const refreshToken = data.refreshToken;
+        if (!accessToken || !refreshToken) {
+          setMessage('Invalid login response. Please try again.');
+          setLoading(false);
+          return;
+        }
+        clearAuth();
         roleService.clearCache();
-        
-        // Set new authentication data
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('userEmail', email);
-        
-        // Get user role first to determine what data to store
+        setTokens(accessToken, refreshToken, email, data.patient_id ?? null);
+
         roleService.getDefaultRoute().then((defaultRoute) => {
-          // Check user role to determine if we should store patient_id
-          // Only store patient_id if user is actually a patient
-          fetch('http://192.168.5.111:5000/api/user-role', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-Email': email
-            }
-          }).then(roleRes => roleRes.json()).then(roleData => {
-            // Only store patient_id if user role is 'patient'
-            if (roleData.success && roleData.role === 'patient' && roleData.patient_id) {
-              localStorage.setItem('patient_id', roleData.patient_id);
-            } else if (data.patient_id && roleData.success && roleData.role === 'patient') {
-              // Fallback: use patient_id from login response if role is patient
-              localStorage.setItem('patient_id', data.patient_id);
-            }
-            // Don't store patient_id for doctors, admins, or other roles
-            
-            // Get the default route based on user role
-            // If redirectPath is provided (capability-specific login), use it
-            // Otherwise, use the route from roleService
-            if (redirectPath) {
-              // Capability-specific login - use provided redirect path
-              setTimeout(() => {
-                window.location.href = redirectPath;
-              }, 500);
-            } else {
-              // Default login - use route from roleService
-              setTimeout(() => {
-                if (defaultRoute !== '/login') {
-                  window.location.href = defaultRoute;
-                } else {
-                  // Fallback to onLoginSuccess if no route determined
-                  onLoginSuccess();
-                }
-              }, 500);
-            }
-          }).catch(() => {
-            // If role check fails, still proceed with redirect
-            if (redirectPath) {
-              setTimeout(() => {
-                window.location.href = redirectPath;
-              }, 500);
-            } else {
-              roleService.getDefaultRoute().then((defaultRoute) => {
-                setTimeout(() => {
-                  if (defaultRoute !== '/login') {
-                    window.location.href = defaultRoute;
-                  } else {
-                    onLoginSuccess();
-                  }
-                }, 500);
-              }).catch(() => {
+          if (redirectPath) {
+            setTimeout(() => {
+              window.location.href = redirectPath;
+            }, 500);
+          } else {
+            setTimeout(() => {
+              if (defaultRoute !== '/login') {
+                window.location.href = defaultRoute;
+              } else {
                 onLoginSuccess();
-              });
-            }
-          });
+              }
+            }, 500);
+          }
         }).catch(() => {
-          // If role check fails, use onLoginSuccess callback
-          onLoginSuccess();
+          if (redirectPath) {
+            setTimeout(() => window.location.href = redirectPath, 500);
+          } else {
+            onLoginSuccess();
+          }
         });
       } else if (res.status === 404 && data.user_not_found) {
         // User not found - show signup dialog

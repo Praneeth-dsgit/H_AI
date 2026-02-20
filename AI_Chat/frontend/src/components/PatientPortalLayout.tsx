@@ -181,9 +181,7 @@ const PatientPortalLayout: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('patient_id');
+    import('../services/authService').then((m) => m.clearAuth());
     navigate('/login');
   };
 

@@ -1,11 +1,13 @@
 """
 Appointment Routes
 Handles appointment management (CRUD operations).
+Uses JWT for auth; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
 import traceback
 from config import db
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -13,23 +15,16 @@ logger = logging.getLogger(__name__)
 appointments_bp = Blueprint('appointments', __name__, url_prefix='/api')
 
 @appointments_bp.route('/appointments', methods=['GET'])
+@require_jwt
 def get_appointments():
     """Get appointments for a patient or doctor"""
     try:
-        # Get patient_id or doctor_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        doctor_id = request.headers.get('X-Doctor-ID')
-        user_email = request.headers.get('X-User-Email')
+        patient_id = g.patient_id
+        doctor_id = request.args.get('doctor_id')
+        user_email = g.user_email
         
-        if not patient_id and not doctor_id and not user_email:
-            return jsonify({
-                'success': False,
-                'error': 'X-Patient-ID, X-Doctor-ID header, or X-User-Email header is required'
-            }), 400
-        
-        # If user_email provided, check if user is a doctor or patient
-        if not patient_id and not doctor_id and user_email:
-            # First check if user is a doctor
+        if not patient_id and not doctor_id:
+            # Resolve doctor_id from authenticated user
             doctor_result = db.session.execute(
                 db.text("""
                     SELECT doctor_id FROM doctors
@@ -37,28 +32,14 @@ def get_appointments():
                 """),
                 {"email": user_email}
             ).fetchone()
-            
             if doctor_result:
                 doctor_id = doctor_result[0]
                 logger.info(f"User {user_email} identified as doctor with doctor_id: {doctor_id}")
-            else:
-                # Check if user is a patient
-                patient_result = db.session.execute(
-                    db.text("""
-                        SELECT p.patient_id FROM patients p
-                        JOIN users u ON p.user_id = u.id
-                        WHERE u.email = :email
-                    """),
-                    {"email": user_email}
-                ).fetchone()
-                if patient_result:
-                    patient_id = patient_result[0]
-                    logger.info(f"User {user_email} identified as patient with patient_id: {patient_id}")
-                else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'User not found as doctor or patient for the provided email'
-                    }), 404
+            elif not patient_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'User not found as doctor or patient'
+                }), 404
         
         # Build query based on whether filtering by doctor_id or patient_id
         if doctor_id:
@@ -141,13 +122,19 @@ def get_appointments():
         }), 500
 
 @appointments_bp.route('/appointments/<int:appointment_id>', methods=['GET'])
+@require_jwt
 def get_appointment(appointment_id):
     """Get a single appointment by ID"""
     try:
-        # Get patient_id or doctor_id from header for authorization
-        patient_id = request.headers.get('X-Patient-ID')
-        doctor_id = request.headers.get('X-Doctor-ID')
-        user_email = request.headers.get('X-User-Email')
+        patient_id = g.patient_id
+        user_email = g.user_email
+        doctor_id = None
+        doctor_result = db.session.execute(
+            db.text("SELECT doctor_id FROM doctors WHERE email = :email AND is_active = TRUE"),
+            {"email": user_email}
+        ).fetchone()
+        if doctor_result:
+            doctor_id = doctor_result[0]
         
         # Get the appointment
         result = db.session.execute(
@@ -191,14 +178,9 @@ def get_appointment(appointment_id):
         
         appointment = dict(result._mapping) if hasattr(result, '_mapping') else dict(zip(result.keys(), result))
         
-        # Verify authorization - check if user has access to this appointment
-        if patient_id and appointment.get('patient_id') != patient_id:
-            return jsonify({
-                'success': False,
-                'error': 'Unauthorized'
-            }), 403
-        
-        if doctor_id and appointment.get('doctor_id') != doctor_id:
+        # Verify authorization - user must be the patient or the doctor
+        ok = (patient_id and appointment.get('patient_id') == patient_id) or (doctor_id is not None and appointment.get('doctor_id') == doctor_id)
+        if not ok:
             return jsonify({
                 'success': False,
                 'error': 'Unauthorized'
@@ -231,36 +213,16 @@ def get_appointment(appointment_id):
         }), 500
 
 @appointments_bp.route('/appointments', methods=['POST'])
+@require_jwt
 def create_appointment():
     """Create a new appointment"""
     try:
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and not user_email:
+        patient_id = g.patient_id
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # If user_email provided, get patient_id from it
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found for the provided email'
-                }), 404
         
         data = request.get_json()
         
@@ -355,6 +317,7 @@ def create_appointment():
         }), 500
 
 @appointments_bp.route('/appointments/<int:appointment_id>/cancel', methods=['POST', 'OPTIONS'])
+@require_jwt
 def cancel_appointment(appointment_id):
     """Cancel an appointment"""
     try:
@@ -387,6 +350,7 @@ def cancel_appointment(appointment_id):
         }), 500
 
 @appointments_bp.route('/appointments/<int:appointment_id>', methods=['PUT'])
+@require_jwt
 def update_appointment(appointment_id):
     """Update an appointment (edit appointment details)"""
     try:
@@ -548,6 +512,7 @@ def update_appointment(appointment_id):
         }), 500
 
 @appointments_bp.route('/appointments/<int:appointment_id>/status', methods=['PUT'])
+@require_jwt
 def update_appointment_status(appointment_id):
     """Update appointment status (completed, pending, cancelled)"""
     try:
@@ -723,6 +688,7 @@ def update_appointment_status(appointment_id):
         }), 500
 
 @appointments_bp.route('/appointments/<int:appointment_id>/reschedule', methods=['POST', 'OPTIONS'])
+@require_jwt
 def reschedule_appointment(appointment_id):
     """Reschedule an appointment"""
     try:

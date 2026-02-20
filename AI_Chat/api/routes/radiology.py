@@ -1,11 +1,13 @@
 """
 Radiology Booking Routes
 Handles radiology booking management.
+Uses JWT for auth; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
 import traceback
 from config import db
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 radiology_bp = Blueprint('radiology', __name__, url_prefix='/api/radiology')
 
 @radiology_bp.route('/bookings', methods=['GET', 'POST', 'OPTIONS'])
+@require_jwt
 def radiology_bookings():
     """Get all radiology bookings or create a new one"""
     if request.method == 'GET':
@@ -25,33 +28,12 @@ def radiology_bookings():
 def get_radiology_bookings():
     """Get all radiology bookings for the patient"""
     try:
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and not user_email:
+        patient_id = g.patient_id
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # If user_email provided, get patient_id from it
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found for the provided email'
-                }), 404
         
         # Get all radiology bookings for the patient
         bookings_result = db.session.execute(
@@ -121,33 +103,12 @@ def get_radiology_bookings():
 def create_radiology_booking():
     """Create a new radiology booking"""
     try:
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and not user_email:
+        patient_id = g.patient_id
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # If user_email provided, get patient_id from it
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found for the provided email'
-                }), 404
         
         data = request.get_json()
         

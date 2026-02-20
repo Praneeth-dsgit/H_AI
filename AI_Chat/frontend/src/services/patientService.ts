@@ -1,9 +1,11 @@
 /**
  * Patient Service - API calls for patient-related operations
- * Uses Patient ID as the central identifier
+ * Uses JWT (Authorization: Bearer); identity from token.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL + '/api';
+import { getAuthHeaders, authenticatedFetch } from './authService';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000') + '/api';
 
 export interface Patient {
   patient_id: string;
@@ -49,49 +51,16 @@ export interface FamilyMember {
 }
 
 class PatientService {
-  private getPatientId(): string | null {
-    return localStorage.getItem('patient_id');
-  }
-
-  private getAuthHeaders(): HeadersInit {
-    const patientId = this.getPatientId();
-    const userEmail = localStorage.getItem('userEmail');
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    if (patientId) {
-      headers['X-Patient-ID'] = patientId;
-    }
-    if (userEmail) {
-      headers['X-User-Email'] = userEmail;
-    }
-    return headers;
+  getPatientId(): string | null {
+    return sessionStorage.getItem('patient_id');
   }
 
   // Patient Profile
   async getProfile(): Promise<{ success: boolean; patient?: Patient; error?: string }> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Use patient_id if available, otherwise use user email
-      const patientId = this.getPatientId();
-      if (patientId) {
-        headers['X-Patient-ID'] = patientId;
-        console.log('Fetching profile with Patient ID:', patientId);
-      } else if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-        console.log('Fetching profile with User Email:', userEmail);
-      } else {
-        console.error('No patient_id or userEmail found in localStorage');
-        return { success: false, error: 'No authentication information found. Please login again.' };
-      }
-      
-      const response = await fetch(`${API_BASE}/patient/profile`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/profile`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
       
       console.log('Profile API response status:', response.status);
@@ -112,22 +81,9 @@ class PatientService {
 
   async updateProfile(patientData: Partial<Patient>): Promise<{ success: boolean; patient?: Patient; error?: string }> {
     try {
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      
-      // Use patient_id if available, otherwise use user email
-      const patientId = this.getPatientId();
-      if (patientId) {
-        headers['X-Patient-ID'] = patientId;
-      } else if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-      }
-      
-      const response = await fetch(`${API_BASE}/patient/profile`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/profile`, {
         method: 'PUT',
-        headers: headers,
+        headers: getAuthHeaders(),
         body: JSON.stringify(patientData),
       });
       const data = await response.json();
@@ -140,9 +96,9 @@ class PatientService {
   // Family Members
   async getFamilyMembers(): Promise<{ success: boolean; family_members?: FamilyMember[]; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/patient/family-members`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/family-members`, {
         method: 'GET',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -153,9 +109,9 @@ class PatientService {
 
   async addFamilyMember(memberData: Omit<FamilyMember, 'family_member_id' | 'primary_patient_id' | 'is_active'>): Promise<{ success: boolean; family_member?: FamilyMember; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/patient/family-members`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/family-members`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(memberData),
       });
       const data = await response.json();
@@ -167,9 +123,9 @@ class PatientService {
 
   async updateFamilyMember(memberId: number, memberData: Partial<FamilyMember>): Promise<{ success: boolean; family_member?: FamilyMember; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/patient/family-members/${memberId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/family-members/${memberId}`, {
         method: 'PUT',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
         body: JSON.stringify(memberData),
       });
       const data = await response.json();
@@ -181,9 +137,9 @@ class PatientService {
 
   async deleteFamilyMember(memberId: number): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/patient/family-members/${memberId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/family-members/${memberId}`, {
         method: 'DELETE',
-        headers: this.getAuthHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -200,17 +156,9 @@ class PatientService {
       if (search) queryParams.append('search', search);
       if (doctorId) queryParams.append('doctor_id', doctorId.toString());
 
-      const userEmail = localStorage.getItem('userEmail');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (userEmail) {
-        headers['X-User-Email'] = userEmail;
-      }
-
-      const response = await fetch(`${API_BASE}/patient/list?${queryParams}`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/list?${queryParams}`, {
         method: 'GET',
-        headers: headers,
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;
@@ -222,12 +170,9 @@ class PatientService {
   // Get patient by ID (for auto-fill)
   async getPatientById(patientId: string): Promise<{ success: boolean; patient?: Patient; error?: string }> {
     try {
-      const response = await fetch(`${API_BASE}/patient/profile?patient_id=${patientId}`, {
+      const response = await authenticatedFetch(`${API_BASE}/patient/profile?patient_id=${patientId}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Patient-ID': patientId,
-        },
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       return data;

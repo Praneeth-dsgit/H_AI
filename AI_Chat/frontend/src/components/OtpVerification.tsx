@@ -24,13 +24,13 @@ const OtpVerification: React.FC<{ email?: string; onVerified: () => void }> = ({
         setMessage('OTP verified! Account activated.');
         // Store patient_id if provided
         if (data.patient_id) {
-          localStorage.setItem('patient_id', data.patient_id);
+          sessionStorage.setItem('patient_id', data.patient_id);
         }
         // Clear pending verification email
         localStorage.removeItem('pendingVerificationEmail');
         // Set authenticated
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('userEmail', email);
+        sessionStorage.setItem('isAuthenticated', 'true');
+        sessionStorage.setItem('userEmail', email);
         onVerified();
       } else {
         setMessage(data.error || 'OTP verification failed.');

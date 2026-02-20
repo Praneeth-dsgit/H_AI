@@ -1,8 +1,9 @@
 """
 Chat Routes
 Handles AI chat streaming, context management, and patient portal chat.
+Uses JWT for auth; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, g
 import logging
 import traceback
 import re
@@ -12,6 +13,7 @@ from validation_utils import validate_request
 from models import ChatRequest
 from context_manager import context_manager
 from services.ai_service import generate_capability_prompt
+from utils.jwt_utils import require_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +21,17 @@ logger = logging.getLogger(__name__)
 chat_bp = Blueprint('chat', __name__, url_prefix='/api')
 
 @chat_bp.route('/chat/stream', methods=['POST'])
+@require_jwt
 @validate_request(ChatRequest)
 def chat_stream():
     try:
         logger.info("\n=== Starting new chat stream ===")
         
-        # Get validated data from decorator
+        # Get validated data from decorator; user identity from JWT only
         chat_request = request.validated_data
+        user_email = g.user_email
         
         user_message = chat_request.message
-        user_email = chat_request.user_email
         patient_info = chat_request.patient_info
         file_context = chat_request.file_context
         file_findings = chat_request.file_findings

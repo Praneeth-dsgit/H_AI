@@ -1,9 +1,11 @@
 """
 Patient Engagement Routes
 Handles AI-powered patient engagement features, appointment booking, and patient portal queries.
+Uses JWT for protected routes; identity from Authorization: Bearer <accessToken>.
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 import logging
+from utils.jwt_utils import require_jwt
 import traceback
 import json
 import re
@@ -553,11 +555,9 @@ def book_appointment():
 patient_portal_bp = Blueprint('patient_portal', __name__, url_prefix='/api/patient-portal')
 
 @patient_portal_bp.route('/query', methods=['POST', 'OPTIONS'])
+@require_jwt
 def patient_portal_query():
     """Handle patient portal database queries - scoped to the logged-in patient"""
-    if request.method == 'OPTIONS':
-        return jsonify({}), 200
-    
     try:
         data = request.get_json()
         query = data.get('query', '').strip()
@@ -569,33 +569,12 @@ def patient_portal_query():
                 'error': 'Query is required'
             }), 400
         
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and not user_email:
+        patient_id = g.patient_id
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # If user_email provided, get patient_id from it
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found for the provided email'
-                }), 404
         
         agent = DatabaseAgent()
         
@@ -647,11 +626,9 @@ def patient_portal_query():
         }), 500
 
 @patient_portal_bp.route('/extract-and-book', methods=['POST', 'OPTIONS'])
+@require_jwt
 def patient_portal_extract_and_book():
     """Extract appointment details from natural language and book for logged-in patient"""
-    if request.method == 'OPTIONS':
-        return jsonify({}), 200
-    
     try:
         data = request.get_json()
         query = data.get('query', '').strip()
@@ -659,33 +636,12 @@ def patient_portal_extract_and_book():
         if not query:
             return jsonify({'success': False, 'error': 'Query is required'}), 400
         
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
-        user_email = request.headers.get('X-User-Email')
-        
-        if not patient_id and not user_email:
+        patient_id = g.patient_id
+        if not patient_id:
             return jsonify({
                 'success': False,
-                'error': 'X-Patient-ID header or X-User-Email header is required'
+                'error': 'No patient record for this user'
             }), 400
-        
-        # If user_email provided, get patient_id from it
-        if not patient_id and user_email:
-            result = db.session.execute(
-                db.text("""
-                    SELECT p.patient_id FROM patients p
-                    JOIN users u ON p.user_id = u.id
-                    WHERE u.email = :email
-                """),
-                {"email": user_email}
-            ).fetchone()
-            if result:
-                patient_id = result[0]
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Patient not found for the provided email'
-                }), 404
         
         # Get patient info
         patient_result = db.session.execute(
@@ -912,11 +868,9 @@ Return ONLY the JSON, no other text."""
         }), 500
 
 @patient_portal_bp.route('/chat', methods=['POST', 'OPTIONS'])
+@require_jwt
 def patient_portal_chat():
     """AI chat endpoint specifically for patient portal - provides home remedies and answers patient data queries"""
-    if request.method == 'OPTIONS':
-        return jsonify({}), 200
-    
     try:
         data = request.get_json()
         message = data.get('message', '').strip()
@@ -932,8 +886,12 @@ def patient_portal_chat():
                 'error': 'Message is required'
             }), 400
         
-        # Get patient_id from header
-        patient_id = request.headers.get('X-Patient-ID')
+        patient_id = g.patient_id
+        if not patient_id:
+            return jsonify({
+                'success': False,
+                'error': 'No patient record for this user'
+            }), 400
         
         # Create system prompt for patient portal chat
         system_prompt = """You are a friendly, conversational, and helpful AI health assistant for patients. You have COMPLETE ACCESS to detailed health information for the primary patient and all their family members, including:
